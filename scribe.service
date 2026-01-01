@@ -1,0 +1,11 @@
+[Unit]
+Description=Scribe Voice Dictation
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/scribe
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
