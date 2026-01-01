@@ -41,6 +41,7 @@ impl ksni::Tray for TrayIcon {
                 AppStatus::Idle => "scribe-tray-idle",
                 AppStatus::Recording => "scribe-tray-recording",
                 AppStatus::Transcribing => "scribe-tray-transcribing",
+                AppStatus::Error(_) => "scribe-tray-error",
             }
         };
         icon_name.to_string()
@@ -54,12 +55,12 @@ impl ksni::Tray for TrayIcon {
 
     fn title(&self) -> String {
         let status = self.status.lock().unwrap();
-        match *status {
-            AppStatus::Idle => "Scribe: Idle",
-            AppStatus::Recording => "Scribe: Recording",
-            AppStatus::Transcribing => "Scribe: Transcribing",
+        match &*status {
+            AppStatus::Idle => "Scribe: Idle".to_string(),
+            AppStatus::Recording => "Scribe: Recording".to_string(),
+            AppStatus::Transcribing => "Scribe: Transcribing".to_string(),
+            AppStatus::Error(msg) => format!("Scribe: Error - {msg}"),
         }
-        .to_string()
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
@@ -97,6 +98,9 @@ mod tests {
 
         *status.lock().unwrap() = AppStatus::Transcribing;
         assert_eq!(tray.icon_name(), "scribe-tray-transcribing");
+
+        *status.lock().unwrap() = AppStatus::Error("test error".to_string());
+        assert_eq!(tray.icon_name(), "scribe-tray-error");
     }
 
     #[test]
@@ -122,6 +126,9 @@ mod tests {
 
         *status.lock().unwrap() = AppStatus::Transcribing;
         assert_eq!(tray.title(), "Scribe: Transcribing");
+
+        *status.lock().unwrap() = AppStatus::Error("Audio device error".to_string());
+        assert_eq!(tray.title(), "Scribe: Error - Audio device error");
     }
 
     #[test]
