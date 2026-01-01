@@ -1,3 +1,5 @@
+#![allow(clippy::multiple_crate_versions)] // TODO: Resolve dependency conflicts in Phase 1+
+
 use clap::{Parser, Subcommand};
 use scribe::error::Result;
 

@@ -7,11 +7,11 @@ pub struct TextInjector {
 }
 
 impl TextInjector {
-    pub fn new(delay_ms: u64) -> Result<Self> {
+    pub const fn new(delay_ms: u64) -> Result<Self> {
         Ok(Self { delay_ms })
     }
 
-    pub fn inject(&self, _text: &str) -> Result<()> {
+    pub const fn inject(&self, _text: &str) -> Result<()> {
         // TODO: Implement text injection via dotool
         Ok(())
     }

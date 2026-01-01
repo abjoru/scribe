@@ -7,7 +7,7 @@ pub struct AudioCapture {
 }
 
 impl AudioCapture {
-    pub fn new(sample_rate: u32) -> Result<Self> {
+    pub const fn new(sample_rate: u32) -> Result<Self> {
         Ok(Self { sample_rate })
     }
 

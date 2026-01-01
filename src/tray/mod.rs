@@ -5,12 +5,19 @@ pub struct TrayIcon {
     // TODO: Add ksni fields
 }
 
+impl Default for TrayIcon {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TrayIcon {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {}
     }
 
-    pub fn update_status(&mut self, _status: AppStatus) {
+    pub const fn update_status(&mut self, _status: AppStatus) {
         // TODO: Implement status update
     }
 }

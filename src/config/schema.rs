@@ -60,19 +60,19 @@ pub struct NotificationConfig {
 }
 
 // Default value functions
-fn default_sample_rate() -> u32 {
+const fn default_sample_rate() -> u32 {
     16000
 }
-fn default_aggressiveness() -> u8 {
+const fn default_aggressiveness() -> u8 {
     2
 }
-fn default_silence_ms() -> u32 {
+const fn default_silence_ms() -> u32 {
     900
 }
-fn default_min_duration_ms() -> u32 {
+const fn default_min_duration_ms() -> u32 {
     500
 }
-fn default_skip_initial_ms() -> u32 {
+const fn default_skip_initial_ms() -> u32 {
     150
 }
 fn default_backend() -> String {
@@ -87,13 +87,13 @@ fn default_language() -> String {
 fn default_method() -> String {
     "dotool".to_string()
 }
-fn default_delay_ms() -> u64 {
+const fn default_delay_ms() -> u64 {
     2
 }
-fn default_true() -> bool {
+const fn default_true() -> bool {
     true
 }
-fn default_preview_length() -> usize {
+const fn default_preview_length() -> usize {
     50
 }
 

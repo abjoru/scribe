@@ -7,7 +7,7 @@ pub struct ApiTranscriber {
 }
 
 impl ApiTranscriber {
-    pub fn new(api_key: String) -> Result<Self> {
+    pub const fn new(api_key: String) -> Result<Self> {
         Ok(Self { api_key })
     }
 

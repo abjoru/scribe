@@ -6,42 +6,33 @@ pub struct NotificationManager {
 }
 
 impl NotificationManager {
-    pub fn new(config: NotificationConfig) -> Self {
+    #[must_use]
+    pub const fn new(config: NotificationConfig) -> Self {
         Self { config }
     }
 
-    pub fn recording_started(&self) {
-        if !self.config.enable_status {
-            return;
-        }
+    pub const fn recording_started(&self) {
+        if !self.config.enable_status {}
         // TODO: Send notification
     }
 
-    pub fn recording_stopped(&self) {
-        if !self.config.enable_status {
-            return;
-        }
+    pub const fn recording_stopped(&self) {
+        if !self.config.enable_status {}
         // TODO: Send notification
     }
 
-    pub fn transcription_complete(&self, _text: &str) {
-        if !self.config.enable_status {
-            return;
-        }
+    pub const fn transcription_complete(&self, _text: &str) {
+        if !self.config.enable_status {}
         // TODO: Send notification with preview
     }
 
-    pub fn error_transcription(&self, _error: &str) {
-        if !self.config.enable_errors {
-            return;
-        }
+    pub const fn error_transcription(&self, _error: &str) {
+        if !self.config.enable_errors {}
         // TODO: Send error notification
     }
 
-    pub fn error_api_quota(&self) {
-        if !self.config.enable_errors {
-            return;
-        }
+    pub const fn error_api_quota(&self) {
+        if !self.config.enable_errors {}
         // TODO: Send critical notification
     }
 }

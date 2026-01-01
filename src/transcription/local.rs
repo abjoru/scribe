@@ -6,11 +6,11 @@ pub struct LocalTranscriber {
 }
 
 impl LocalTranscriber {
-    pub fn new() -> Result<Self> {
+    pub const fn new() -> Result<Self> {
         Ok(Self {})
     }
 
-    pub fn transcribe(&self, _audio: &[i16]) -> Result<String> {
+    pub const fn transcribe(&self, _audio: &[i16]) -> Result<String> {
         // TODO: Implement local transcription
         Ok(String::new())
     }

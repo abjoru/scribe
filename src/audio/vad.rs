@@ -8,7 +8,7 @@ pub struct VoiceActivityDetector {
 }
 
 impl VoiceActivityDetector {
-    pub fn new(sample_rate: u32, aggressiveness: u8) -> Result<Self> {
+    pub const fn new(sample_rate: u32, aggressiveness: u8) -> Result<Self> {
         Ok(Self {
             sample_rate,
             aggressiveness,

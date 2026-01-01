@@ -1,6 +1,6 @@
 # Scribe
 
-Fast, lean, Rust-based voice dictation system - a modern replacement for WhisperWriter.
+Fast, lean, Rust-based voice dictation system
 
 ## Status
 
@@ -98,4 +98,4 @@ TBD
 
 ## Documentation
 
-See `/home/abjoru/Projects/Rust dictate (scribe)/` for detailed planning documents.
+TBD

@@ -7,7 +7,7 @@ pub struct IpcClient {
 }
 
 impl IpcClient {
-    pub fn new() -> Result<Self> {
+    pub const fn new() -> Result<Self> {
         Ok(Self {})
     }
 
