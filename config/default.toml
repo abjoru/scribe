@@ -14,7 +14,9 @@ silence_ms = 900
 # Minimum recording duration in milliseconds
 min_duration_ms = 500
 # Skip initial milliseconds to avoid hotkey noise
-skip_initial_ms = 150
+# Note: Set to 0 for IPC-triggered capture (no keyboard noise since capture starts after command)
+# WhisperWriter uses 150ms because it captures continuously
+skip_initial_ms = 0
 
 [transcription]
 # Backend: "local" or "openai"

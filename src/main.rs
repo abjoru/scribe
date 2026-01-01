@@ -1,12 +1,14 @@
 #![allow(clippy::multiple_crate_versions)] // TODO: Resolve dependency conflicts in Phase 1+
 
 use clap::{Parser, Subcommand};
-use scribe::audio::{capture::AudioCapture, vad::VadConfig, vad::VoiceActivityDetector};
+use scribe::audio::capture::AudioCapture;
 use scribe::config::Config;
 use scribe::error::{Result, ScribeError};
 use scribe::input::inject::TextInjector;
 use scribe::ipc::{client::IpcClient, server::IpcServer, AppStatus, Command, Response};
 use scribe::transcription::Backend;
+use scribe::tray::TrayIcon;
+use std::sync::{Arc, Mutex};
 use tokio::signal;
 use tokio::sync::mpsc;
 
@@ -121,12 +123,41 @@ async fn run_daemon(config: Config) -> Result<()> {
         }
     });
 
+    // Initialize system tray icon with shared status
+    let tray_status = Arc::new(Mutex::new(AppStatus::Idle));
+    let tray_icon = TrayIcon::new(Arc::clone(&tray_status));
+    tracing::debug!("Creating tray icon service");
+
+    // Create tray service and get handle before spawning
+    let service = ksni::TrayService::new(tray_icon);
+    let tray_handle = service.handle();
+
+    // Spawn tray service in blocking thread (ksni requires blocking runtime)
+    std::thread::spawn(move || {
+        tracing::debug!("Tray service thread started");
+        if let Err(e) = service.run() {
+            tracing::error!(error = %e, "Tray service error");
+        }
+    });
+    tracing::info!("System tray icon initialized");
+
     // Application state
     let mut app_state = AppState::Idle;
     let mut current_status = AppStatus::Idle;
 
+    // Helper to update both IPC and tray status
+    let update_status = |status: AppStatus| {
+        // Update tray status and signal refresh
+        tray_handle.update(|tray| {
+            if let Ok(mut tray_status) = tray.status_handle().lock() {
+                *tray_status = status.clone();
+            }
+        });
+        status_tx.send(status)
+    };
+
     // Send initial status
-    status_tx.send(current_status.clone()).await.ok();
+    update_status(current_status.clone()).await.ok();
 
     tracing::info!("Daemon fully initialized and ready");
     tracing::debug!("Entering main event loop");
@@ -166,7 +197,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                                         tracing::info!("Recording started successfully");
                                         app_state = AppState::Recording { audio_stream: stream, frames };
                                         current_status = AppStatus::Recording;
-                                        status_tx.send(current_status.clone()).await.ok();
+                                        update_status(current_status.clone()).await.ok();
                                     }
                                     Err(e) => {
                                         tracing::error!(error = %e, "Failed to start recording");
@@ -185,7 +216,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                                         "Recording stopped, processing audio"
                                     );
                                     current_status = AppStatus::Transcribing;
-                                    status_tx.send(current_status.clone()).await.ok();
+                                    update_status(current_status.clone()).await.ok();
 
                                     // Process recording
                                     match process_recording(frames, &config, &backend, &mut text_injector).await {
@@ -204,7 +235,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                                         }
                                     }
                                     current_status = AppStatus::Idle;
-                                    status_tx.send(current_status.clone()).await.ok();
+                                    update_status(current_status.clone()).await.ok();
 
                                     app_state = AppState::Idle;
                                     tracing::debug!("Returned to idle state");
@@ -225,7 +256,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                                     tracing::info!("Recording started successfully");
                                     app_state = AppState::Recording { audio_stream: stream, frames };
                                     current_status = AppStatus::Recording;
-                                    status_tx.send(current_status.clone()).await.ok();
+                                    update_status(current_status.clone()).await.ok();
                                 }
                                 Err(e) => {
                                     tracing::error!(error = %e, "Failed to start recording");
@@ -247,7 +278,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                                 "Recording stopped, processing audio"
                             );
                             current_status = AppStatus::Transcribing;
-                            status_tx.send(current_status.clone()).await.ok();
+                            update_status(current_status.clone()).await.ok();
 
                             // Process recording synchronously
                             match process_recording(frames, &config, &backend, &mut text_injector).await {
@@ -266,7 +297,7 @@ async fn run_daemon(config: Config) -> Result<()> {
                                 }
                             }
                             current_status = AppStatus::Idle;
-                            status_tx.send(current_status.clone()).await.ok();
+                            update_status(current_status.clone()).await.ok();
 
                             app_state = AppState::Idle;
                             tracing::debug!("Returned to idle state");
@@ -335,48 +366,42 @@ async fn process_recording(
     backend: &Backend,
     text_injector: &mut TextInjector,
 ) -> Result<Option<String>> {
-    // Convert config to audio::vad::VadConfig
-    let vad_cfg = VadConfig {
-        sample_rate: config.audio.sample_rate,
-        aggressiveness: config.vad.aggressiveness,
-        silence_ms: config.vad.silence_ms,
-        min_duration_ms: config.vad.min_duration_ms,
-        skip_initial_ms: config.vad.skip_initial_ms,
-    };
+    // Flatten all frames into single audio buffer (bypass VAD extraction for manual toggle)
+    let audio: Vec<i16> = frames.into_iter().flatten().collect();
 
-    // Extract speech using VAD
-    tracing::debug!(
-        frame_count = frames.len(),
-        aggressiveness = vad_cfg.aggressiveness,
-        "Running VAD on recorded frames"
-    );
-    let mut vad = VoiceActivityDetector::new(&vad_cfg)?;
-    let speech_audio = vad.extract_speech_from_frames(frames)?;
+    #[allow(clippy::cast_precision_loss)]
+    let duration_seconds = audio.len() as f32 / config.audio.sample_rate as f32;
 
-    if let Some(audio) = speech_audio {
-        #[allow(clippy::cast_precision_loss)]
-        let duration_s = audio.len() as f32 / config.audio.sample_rate as f32;
-        tracing::info!(
-            sample_count = audio.len(),
-            duration_s = %format!("{duration_s:.2}"),
-            "Speech detected, starting transcription"
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let duration_ms = (duration_seconds * 1000.0) as u32;
+
+    // Check minimum duration
+    if duration_ms < config.vad.min_duration_ms {
+        tracing::debug!(
+            duration_ms,
+            min_duration_ms = config.vad.min_duration_ms,
+            "Recording too short, discarding"
         );
+        return Ok(None);
+    }
 
-        // Transcribe
-        let text = backend.transcribe(&audio).await?;
+    tracing::info!(
+        sample_count = audio.len(),
+        duration_s = %format!("{duration_seconds:.2}"),
+        "Processing recording for transcription"
+    );
 
-        if text.trim().is_empty() {
-            tracing::debug!("Transcription returned empty text");
-            Ok(None)
-        } else {
-            // Inject text
-            tracing::debug!(text = %text, "Injecting transcribed text");
-            text_injector.inject(&text)?;
-            Ok(Some(text))
-        }
-    } else {
-        tracing::debug!("VAD detected no speech in recording");
+    // Transcribe
+    let text = backend.transcribe(&audio).await?;
+
+    if text.trim().is_empty() {
+        tracing::debug!("Transcription returned empty text");
         Ok(None)
+    } else {
+        // Inject text
+        tracing::debug!(text = %text, "Injecting transcribed text");
+        text_injector.inject(&text)?;
+        Ok(Some(text))
     }
 }
 
