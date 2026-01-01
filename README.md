@@ -126,6 +126,37 @@ systemctl --user status scribe
 journalctl --user -u scribe -f
 ```
 
+**Using OpenAI API with systemd:**
+
+If using the OpenAI API backend, you need to provide the API key via an EnvironmentFile:
+
+```bash
+# 1. Create API key environment file
+echo 'OPENAI_API_KEY=sk-your-key-here' > ~/.config/scribe/api-key.env
+chmod 600 ~/.config/scribe/api-key.env
+
+# 2. Copy and customize the systemd service
+mkdir -p ~/.config/systemd/user
+cp /usr/lib/systemd/user/scribe.service ~/.config/systemd/user/
+
+# 3. Edit the service file to add EnvironmentFile
+# Add this line in the [Service] section:
+# EnvironmentFile=%h/.config/scribe/api-key.env
+
+# 4. Reload systemd and start service
+systemctl --user daemon-reload
+systemctl --user enable --now scribe
+```
+
+Example modified service file:
+```ini
+[Service]
+EnvironmentFile=%h/.config/scribe/api-key.env
+ExecStart=/usr/bin/scribe
+Restart=always
+RestartSec=5
+```
+
 ## Development Setup
 
 ### Prerequisites

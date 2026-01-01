@@ -3,8 +3,8 @@
 [audio]
 # Sample rate in Hz (16000 is Whisper standard)
 sample_rate = 16000
-# Audio device (null = auto-detect)
-device = null
+# Audio device (comment out or use "" for auto-detect)
+# device = ""
 
 [vad]
 # WebRTC VAD aggressiveness (0-3, higher = more aggressive)
@@ -57,5 +57,5 @@ preview_length = 50
 [logging]
 # Log level: "debug", "info", "warn", "error"
 level = "info"
-# Optional log file path (null = stderr only)
-file = null
+# Optional log file path (comment out or use "" for stderr only)
+# file = ""
