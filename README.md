@@ -8,7 +8,7 @@
 
 ## Status
 
-🚧 **In Development** - Phase 0-8 Complete
+🚧 **In Development** - Phase 0-9 Complete
 - ✅ Phase 0: Project setup
 - ✅ Phase 1: Audio capture and VAD
 - ✅ Phase 2: Unix socket IPC
@@ -19,8 +19,9 @@
 - ✅ Phase 6: Main application loop
 - ✅ Phase 7: System tray icon + notifications
 - ✅ Phase 8: Polish and optimization (logging, errors, docs)
+- ✅ Phase 9: Packaging and distribution (AUR, systemd, install script)
 
-## Features (Planned)
+## Features
 
 - **Fast**: Compiled binary, <500ms startup time
 - **Lean**: <50MB memory footprint
@@ -29,39 +30,80 @@
 - **IPC Control**: Unix socket interface for XMonad integration
 - **Smart VAD**: WebRTC voice activity detection with scientifically-tuned parameters
 
-## Development Setup
+## Installation
 
 ### Prerequisites
 
-- Rust 1.70+ (2021 edition)
 - System dependencies:
   - **ALSA**: `libasound2-dev` (Debian/Ubuntu) or `alsa-lib` (Arch)
   - **dotool**: Text injection binary ([installation guide](https://sr.ht/~geb/dotool/))
   - **D-Bus**: For system tray and notifications (usually pre-installed)
 
-### Installation
+### Option 1: AUR Package (Arch Linux - Recommended)
 
-#### Option 1: From Source
+```bash
+# Clone the AUR repository
+cd ~/Development/Aur/bbdata-aur/scribe
+makepkg -si
+
+# Or if using an AUR helper:
+paru -S scribe
+```
+
+The AUR package handles:
+- Binary installation to `/usr/bin/scribe`
+- Default config to `/usr/share/scribe/default.toml`
+- Systemd service to `/usr/lib/systemd/user/scribe.service`
+- udev rules for uinput permissions
+
+Post-install steps (shown after installation):
+1. Add your user to 'input' group: `sudo usermod -aG input $USER`
+2. Copy default config: `mkdir -p ~/.config/scribe && cp /usr/share/scribe/default.toml ~/.config/scribe/config.toml`
+3. Edit config: `$EDITOR ~/.config/scribe/config.toml`
+4. Log out and back in (for group change)
+5. Run: `scribe`
+
+Optional: Enable systemd service: `systemctl --user enable --now scribe`
+
+### Option 2: Manual Installation Script
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone https://github.com/abjoru/scribe
+cd scribe
+
+# Run install script (builds and installs to ~/.local/bin)
+./install.sh
+```
+
+The install script:
+- Builds optimized release binary
+- Installs to `~/.local/bin/scribe`
+- Sets up config at `~/.config/scribe/config.toml`
+- Installs systemd user service
+- Sets up udev rules and adds you to 'input' group
+
+Post-install: Log out and back in for group changes to take effect.
+
+### Option 3: Building from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/abjoru/scribe
 cd scribe
 
 # Install system dependencies
+# Arch:
+sudo pacman -S alsa-lib dotool
+
 # Debian/Ubuntu:
 sudo apt install libasound2-dev
 
-# Arch:
-sudo pacman -S alsa-lib
-
-# Install dotool (https://sr.ht/~geb/dotool/)
-# Follow dotool installation instructions for your system
-
 # Build release binary
 cargo build --release
+strip target/release/scribe
 
-# Install (optional)
+# Install manually
 sudo cp target/release/scribe /usr/local/bin/
 
 # Create config directory
@@ -69,7 +111,29 @@ mkdir -p ~/.config/scribe
 cp config/default.toml ~/.config/scribe/config.toml
 ```
 
-#### Option 2: Development Build
+### Systemd Service (Optional)
+
+Run scribe automatically on login:
+
+```bash
+# Enable and start the service
+systemctl --user enable --now scribe
+
+# Check status
+systemctl --user status scribe
+
+# View logs
+journalctl --user -u scribe -f
+```
+
+## Development Setup
+
+### Prerequisites
+
+- Rust 1.70+ (2021 edition)
+- System dependencies (see Installation section above)
+
+### Development Build
 
 ```bash
 # Set up git hooks (for contributors)
@@ -377,8 +441,16 @@ Key components:
 
 ## Contributing
 
-TBD
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Install git hooks: `./setup-hooks.sh`
+4. Make your changes (ensure all tests pass and clippy is happy)
+5. Submit a pull request
 
 ## License
 
-TBD
+MIT License - see [LICENSE](LICENSE) for details
+
+Copyright (c) 2026 Andreas Bjoru
