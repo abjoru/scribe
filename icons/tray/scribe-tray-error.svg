@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- Error: Red hexagon + warning indicator -->
+
+  <!-- Central hexagon (error red) -->
+  <path d="M 12 4 L 18 8 L 18 16 L 12 20 L 6 16 L 6 8 Z" fill="#dc2626" opacity="0.9"/>
+
+  <!-- Warning exclamation mark inside -->
+  <g fill="#fff">
+    <line x1="12" y1="9" x2="12" y2="13" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+    <circle cx="12" cy="15" r="0.7"/>
+  </g>
+
+  <!-- Optional: alert border -->
+  <path d="M 12 4 L 18 8 L 18 16 L 12 20 L 6 16 L 6 8 Z"
+        fill="none" stroke="#dc2626" stroke-width="1" opacity="0.6"/>
+</svg>
