@@ -4,7 +4,14 @@ Fast, lean, Rust-based voice dictation system
 
 ## Status
 
-🚧 **In Development** - Phase 0 (Project Setup) Complete
+🚧 **In Development** - Phase 0-5b Complete
+- ✅ Phase 0: Project setup
+- ✅ Phase 1: Audio capture and VAD
+- ✅ Phase 2: Unix socket IPC
+- ✅ Phase 3: Text injection via dotool
+- ✅ Phase 4: Configuration system
+- ✅ Phase 5a: OpenAI API transcription backend
+- ✅ Phase 5b: Local Whisper (Candle) transcription backend
 
 ## Features (Planned)
 
@@ -53,6 +60,48 @@ Pre-commit hooks will automatically run these checks.
 ### Configuration
 
 Default config at `config/default.toml`. User config will be at `~/.config/scribe/config.toml`.
+
+#### Transcription Backends
+
+Scribe supports two transcription backends:
+
+**1. Local Backend (Whisper via Candle)**
+
+Uses Hugging Face's Candle framework for pure Rust ML inference. Models are automatically downloaded from Hugging Face Hub on first use.
+
+```toml
+[transcription]
+backend = "local"
+model = "tiny"     # Options: tiny, base, small, medium, large
+device = "auto"    # Options: cpu, cuda, auto
+language = "en"    # 2-letter ISO code or empty for auto-detect
+```
+
+Supported models:
+- `tiny` - Fastest, ~75MB, good for real-time
+- `base` - Balanced, ~150MB, recommended default
+- `small` - Better accuracy, ~500MB
+- `medium` - High accuracy, ~1.5GB
+- `large` - Best accuracy, ~3GB
+
+Models are cached in `~/.cache/huggingface/hub/` and reused across runs.
+
+**2. OpenAI API Backend**
+
+Uses OpenAI's Whisper API for transcription (requires API key).
+
+```toml
+[transcription]
+backend = "openai"
+api_key_env = "OPENAI_API_KEY"
+api_model = "whisper-1"
+api_timeout_secs = 30
+```
+
+Set your API key:
+```bash
+export OPENAI_API_KEY="your-key-here"
+```
 
 ## Architecture
 

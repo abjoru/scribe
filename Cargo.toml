@@ -16,9 +16,15 @@ hound = "3.5"
 # VAD
 webrtc-vad = "0.4"
 
-# Transcription (starting with ONNX Runtime, can add candle later)
-# Note: Using RC version as 2.0 is not stable yet
-ort = { version = "2.0.0-rc.10", features = ["download-binaries"] }
+# Transcription - Candle (Hugging Face Rust ML framework)
+candle-core = "0.8"
+candle-nn = "0.8"
+candle-transformers = "0.8"
+tokenizers = "0.15"
+hf-hub = "0.3"
+
+# Audio processing for mel spectrogram
+byteorder = "1.5"
 
 # CLI parsing
 clap = { version = "4", features = ["derive"] }
