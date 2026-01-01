@@ -677,13 +677,15 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_config_path_with_xdg_config_home() {
-        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        let original_xdg = std::env::var("XDG_CONFIG_HOME").ok();
         std::env::set_var("XDG_CONFIG_HOME", "/tmp/test-config");
         let path = Config::config_path().unwrap();
         assert_eq!(path, PathBuf::from("/tmp/test-config/scribe/config.toml"));
 
-        if let Some(val) = original {
+        // Cleanup
+        if let Some(val) = original_xdg {
             std::env::set_var("XDG_CONFIG_HOME", val);
         } else {
             std::env::remove_var("XDG_CONFIG_HOME");
@@ -691,14 +693,17 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_config_path_without_xdg_config_home() {
-        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        let original_xdg = std::env::var("XDG_CONFIG_HOME").ok();
         std::env::remove_var("XDG_CONFIG_HOME");
+
         let home = std::env::var("HOME").unwrap();
         let path = Config::config_path().unwrap();
         assert_eq!(path, PathBuf::from(home).join(".config/scribe/config.toml"));
 
-        if let Some(val) = original {
+        // Cleanup
+        if let Some(val) = original_xdg {
             std::env::set_var("XDG_CONFIG_HOME", val);
         }
     }
