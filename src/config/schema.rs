@@ -34,12 +34,30 @@ pub struct VadConfig {
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct TranscriptionConfig {
+    /// Backend type: "local" or "openai"
     #[serde(default = "default_backend")]
     pub backend: String,
+
+    // Local backend settings
+    /// Model size for local backend: "tiny", "base", "small", "medium", "large"
     #[serde(default = "default_model")]
     pub model: String,
+    /// Device for local backend: "cpu", "cuda", "auto"
+    #[serde(default = "default_device")]
+    pub device: String,
+    /// Language code (e.g., "en", "es", "fr") - leave empty for auto-detect
     #[serde(default = "default_language")]
     pub language: String,
+    /// Initial prompt for better context (optional)
+    pub initial_prompt: Option<String>,
+
+    // OpenAI API backend settings
+    /// Environment variable containing API key
+    pub api_key_env: Option<String>,
+    /// `OpenAI` model name (default: "whisper-1")
+    pub api_model: Option<String>,
+    /// API request timeout in seconds
+    pub api_timeout_secs: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -84,6 +102,9 @@ fn default_backend() -> String {
 fn default_model() -> String {
     "base".to_string()
 }
+fn default_device() -> String {
+    "auto".to_string()
+}
 fn default_language() -> String {
     "en".to_string()
 }
@@ -116,7 +137,12 @@ impl Default for Config {
             transcription: TranscriptionConfig {
                 backend: default_backend(),
                 model: default_model(),
+                device: default_device(),
                 language: default_language(),
+                initial_prompt: None,
+                api_key_env: Some("OPENAI_API_KEY".to_string()),
+                api_model: Some("whisper-1".to_string()),
+                api_timeout_secs: Some(30),
             },
             injection: InjectionConfig {
                 method: default_method(),
@@ -232,8 +258,9 @@ impl Config {
     }
 
     fn validate_transcription(&self) -> Result<()> {
-        const VALID_BACKENDS: &[&str] = &["local", "api"];
+        const VALID_BACKENDS: &[&str] = &["local", "openai"];
         const VALID_MODELS: &[&str] = &["tiny", "base", "small", "medium", "large"];
+        const VALID_DEVICES: &[&str] = &["cpu", "cuda", "auto"];
 
         if !VALID_BACKENDS.contains(&self.transcription.backend.as_str()) {
             return Err(ScribeError::Config(format!(
@@ -242,18 +269,45 @@ impl Config {
             )));
         }
 
-        if !VALID_MODELS.contains(&self.transcription.model.as_str()) {
+        // Validate local backend settings
+        if self.transcription.backend == "local" {
+            if !VALID_MODELS.contains(&self.transcription.model.as_str()) {
+                return Err(ScribeError::Config(format!(
+                    "Invalid model: '{}'. Must be one of: {:?}",
+                    self.transcription.model, VALID_MODELS
+                )));
+            }
+
+            if !VALID_DEVICES.contains(&self.transcription.device.as_str()) {
+                return Err(ScribeError::Config(format!(
+                    "Invalid device: '{}'. Must be one of: {:?}",
+                    self.transcription.device, VALID_DEVICES
+                )));
+            }
+        }
+
+        // Validate language if provided
+        if !self.transcription.language.is_empty() && self.transcription.language.len() != 2 {
             return Err(ScribeError::Config(format!(
-                "Invalid model: '{}'. Must be one of: {:?}",
-                self.transcription.model, VALID_MODELS
+                "Invalid language code: '{}'. Must be 2-letter ISO code (e.g., 'en', 'es') or empty for auto-detect",
+                self.transcription.language
             )));
         }
 
-        if self.transcription.language.len() != 2 {
-            return Err(ScribeError::Config(format!(
-                "Invalid language code: '{}'. Must be 2-letter ISO code (e.g., 'en', 'es')",
-                self.transcription.language
-            )));
+        // Validate OpenAI backend settings
+        if self.transcription.backend == "openai" {
+            if let Some(timeout) = self.transcription.api_timeout_secs {
+                if timeout == 0 {
+                    return Err(ScribeError::Config(
+                        "api_timeout_secs must be greater than 0".to_string(),
+                    ));
+                }
+                if timeout > 300 {
+                    return Err(ScribeError::Config(format!(
+                        "api_timeout_secs too large: {timeout}. Should be < 300s"
+                    )));
+                }
+            }
         }
 
         Ok(())
@@ -415,7 +469,7 @@ mod tests {
 
     #[test]
     fn test_valid_transcription_backends() {
-        for backend in &["local", "api"] {
+        for backend in &["local", "openai"] {
             let mut config = Config::default();
             config.transcription.backend = backend.to_string();
             assert!(config.validate_transcription().is_ok());
@@ -468,6 +522,31 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Invalid language code"));
+    }
+
+    #[test]
+    fn test_empty_language_code() {
+        let mut config = Config::default();
+        config.transcription.language = String::new();
+        assert!(config.validate_transcription().is_ok());
+    }
+
+    #[test]
+    fn test_valid_devices() {
+        for device in &["cpu", "cuda", "auto"] {
+            let mut config = Config::default();
+            config.transcription.device = device.to_string();
+            assert!(config.validate_transcription().is_ok());
+        }
+    }
+
+    #[test]
+    fn test_invalid_device() {
+        let mut config = Config::default();
+        config.transcription.device = "gpu".to_string();
+        let result = config.validate_transcription();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid device"));
     }
 
     #[test]
@@ -575,7 +654,7 @@ mod tests {
             aggressiveness = 3
 
             [transcription]
-            backend = "api"
+            backend = "openai"
             model = "small"
             language = "es"
 
@@ -590,7 +669,7 @@ mod tests {
         assert_eq!(config.audio.device, None);
         assert_eq!(config.vad.aggressiveness, 3);
         assert_eq!(config.vad.silence_ms, 900);
-        assert_eq!(config.transcription.backend, "api");
+        assert_eq!(config.transcription.backend, "openai");
         assert_eq!(config.transcription.model, "small");
         assert_eq!(config.transcription.language, "es");
         assert_eq!(config.injection.delay_ms, 2);
