@@ -5,7 +5,7 @@ use scribe::transcription::Backend;
 fn test_backend_selection_local() {
     let config = TranscriptionConfig {
         backend: "local".to_string(),
-        model: "base".to_string(),
+        model: "tiny".to_string(), // Use tiny model for faster tests
         device: "cpu".to_string(),
         language: "en".to_string(),
         initial_prompt: None,
@@ -14,14 +14,25 @@ fn test_backend_selection_local() {
         api_timeout_secs: None,
     };
 
-    // This will fail if model doesn't exist, which is expected in test environment
+    // This will now download the model from HuggingFace Hub
+    // It may succeed (if network available) or fail (if no network)
     let result = Backend::from_config(&config);
 
-    // We expect an error because the model file doesn't exist
-    // but we can verify the backend type selection worked
+    // Either the backend was created successfully, or we got an error
+    // related to downloading/network issues
     if let Err(e) = result {
-        // Expected - model file doesn't exist in test environment
-        assert!(e.to_string().contains("Model not found"));
+        let err_str = e.to_string();
+        // Accept network/download errors as valid test outcomes
+        assert!(
+            err_str.contains("Failed to download")
+                || err_str.contains("Failed to initialize HuggingFace API")
+                || err_str.contains("Failed to load")
+                || err_str.contains("network"),
+            "Unexpected error: {err_str}"
+        );
+    } else {
+        // Success means the model was downloaded and loaded
+        assert_eq!(result.unwrap().backend_name(), "local");
     }
 }
 

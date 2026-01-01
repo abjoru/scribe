@@ -1,90 +1,366 @@
 use crate::config::schema::TranscriptionConfig;
 use crate::error::{Result, ScribeError, TranscriptionError};
 use crate::transcription::TranscriptionBackend;
+use anyhow::Error as E;
 use async_trait::async_trait;
-use ort::session::builder::GraphOptimizationLevel;
-use ort::session::Session;
-use std::path::PathBuf;
+use byteorder::{ByteOrder, LittleEndian};
+use candle_core::{Device, IndexOp, Tensor};
+use candle_nn::VarBuilder;
+use candle_transformers::models::whisper::{self as m, audio, Config};
+use hf_hub::{api::sync::Api, Repo, RepoType};
+use std::sync::{Arc, Mutex};
+use tokenizers::Tokenizer;
 
-/// Local Whisper transcription using ONNX Runtime
-#[derive(Debug)]
+/// Wrapper around Whisper model variants
+enum WhisperModel {
+    Normal(m::model::Whisper),
+}
+
+/// Parameters for decoding
+struct DecodeParams<'a> {
+    model: &'a mut WhisperModel,
+    tokenizer: &'a Tokenizer,
+    mel: &'a Tensor,
+    device: &'a Device,
+    config: &'a Config,
+    language_token: Option<u32>,
+    sot_token: u32,
+    transcribe_token: u32,
+    eot_token: u32,
+    no_timestamps_token: u32,
+}
+
+impl WhisperModel {
+    fn encoder_forward(&mut self, x: &Tensor, flush: bool) -> candle_core::Result<Tensor> {
+        match self {
+            Self::Normal(m) => m.encoder.forward(x, flush),
+        }
+    }
+
+    fn decoder_forward(
+        &mut self,
+        x: &Tensor,
+        xa: &Tensor,
+        flush: bool,
+    ) -> candle_core::Result<Tensor> {
+        match self {
+            Self::Normal(m) => m.decoder.forward(x, xa, flush),
+        }
+    }
+
+    fn decoder_final_linear(&self, x: &Tensor) -> candle_core::Result<Tensor> {
+        match self {
+            Self::Normal(m) => m.decoder.final_linear(x),
+        }
+    }
+}
+
+/// Local Whisper transcription using Candle
 pub struct LocalBackend {
-    #[allow(dead_code)] // TODO: Will be used when full ONNX pipeline is implemented
-    session: Session,
-    language: Option<String>,
-    initial_prompt: Option<String>,
+    model: Arc<Mutex<WhisperModel>>,
+    tokenizer: Arc<Tokenizer>,
+    device: Device,
+    mel_filters: Arc<Vec<f32>>,
+    config: Config,
+    language_token: Option<u32>,
+    sot_token: u32,
+    transcribe_token: u32,
+    eot_token: u32,
+    no_timestamps_token: u32,
+}
+
+impl std::fmt::Debug for LocalBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalBackend")
+            .field("device", &self.device)
+            .field("language_token", &self.language_token)
+            .finish_non_exhaustive()
+    }
 }
 
 impl LocalBackend {
     /// Create new local backend from config
     pub fn new(config: &TranscriptionConfig) -> Result<Self> {
-        // Get model path
-        let model_path = Self::get_model_path(&config.model)?;
+        // Determine device
+        let device = Self::get_device(&config.device)?;
 
-        // Initialize ONNX Runtime session
-        let session = Session::builder()
-            .map_err(|e| {
-                ScribeError::Transcription(TranscriptionError::ModelError(format!(
-                    "Failed to create ONNX session builder: {e}"
-                )))
-            })?
-            .with_optimization_level(GraphOptimizationLevel::Level3)
-            .map_err(|e| {
-                ScribeError::Transcription(TranscriptionError::ModelError(format!(
-                    "Failed to set optimization level: {e}"
-                )))
-            })?
-            .with_intra_threads(4)
-            .map_err(|e| {
-                ScribeError::Transcription(TranscriptionError::ModelError(format!(
-                    "Failed to set thread count: {e}"
-                )))
-            })?
-            .commit_from_file(&model_path)
-            .map_err(|e| {
-                ScribeError::Transcription(TranscriptionError::ModelError(format!(
-                    "Failed to load model from {}: {}",
-                    model_path.display(),
-                    e
-                )))
-            })?;
+        // Load model and tokenizer from HuggingFace Hub
+        let (model_config, tokenizer, model, mel_filters) =
+            Self::load_model(&config.model, &device)?;
+
+        // Get language token if specified
+        let language_token = if config.language.is_empty() {
+            None
+        } else {
+            Some(
+                Self::token_id(&tokenizer, &format!("<|{}|>", config.language)).map_err(|_| {
+                    ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                        "Language '{}' not supported by model",
+                        config.language
+                    )))
+                })?,
+            )
+        };
+
+        // Get special tokens
+        let sot_token = Self::token_id(&tokenizer, m::SOT_TOKEN)?;
+        let transcribe_token = Self::token_id(&tokenizer, m::TRANSCRIBE_TOKEN)?;
+        let eot_token = Self::token_id(&tokenizer, m::EOT_TOKEN)?;
+        let no_timestamps_token = Self::token_id(&tokenizer, m::NO_TIMESTAMPS_TOKEN)?;
 
         Ok(Self {
-            session,
-            language: if config.language.is_empty() {
-                None
-            } else {
-                Some(config.language.clone())
-            },
-            initial_prompt: config.initial_prompt.clone(),
+            model: Arc::new(Mutex::new(model)),
+            tokenizer: Arc::new(tokenizer),
+            device,
+            mel_filters: Arc::new(mel_filters),
+            config: model_config,
+            language_token,
+            sot_token,
+            transcribe_token,
+            eot_token,
+            no_timestamps_token,
         })
     }
 
-    /// Get model path from cache or return error
-    fn get_model_path(model_size: &str) -> Result<PathBuf> {
-        // Get cache directory
-        let cache_dir = dirs::cache_dir()
-            .ok_or_else(|| ScribeError::Config("Cannot determine cache directory".to_string()))?
-            .join("scribe/models");
+    /// Get compute device based on config
+    fn get_device(device_str: &str) -> Result<Device> {
+        match device_str {
+            "cpu" => Ok(Device::Cpu),
+            "cuda" => Device::cuda_if_available(0).map_err(|e| {
+                ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                    "CUDA not available: {e}"
+                )))
+            }),
+            "auto" => Ok(Device::cuda_if_available(0).unwrap_or(Device::Cpu)),
+            _ => Err(ScribeError::Transcription(TranscriptionError::ModelError(
+                format!("Invalid device: {device_str}"),
+            ))),
+        }
+    }
 
-        // Create cache directory if it doesn't exist
-        std::fs::create_dir_all(&cache_dir)?;
+    /// Load model from `HuggingFace` Hub
+    fn load_model(
+        model_size: &str,
+        device: &Device,
+    ) -> Result<(Config, Tokenizer, WhisperModel, Vec<f32>)> {
+        // Map model size to HuggingFace repo
+        let (model_id, revision) = match model_size {
+            "tiny" => ("openai/whisper-tiny", "main"),
+            "base" => ("openai/whisper-base", "refs/pr/22"),
+            "small" => ("openai/whisper-small", "main"),
+            "medium" => ("openai/whisper-medium", "main"),
+            "large" => ("openai/whisper-large-v3", "main"),
+            _ => {
+                return Err(ScribeError::Transcription(TranscriptionError::ModelError(
+                    format!("Invalid model size: {model_size}"),
+                )))
+            }
+        };
 
-        // Look for model file
-        let model_file = cache_dir.join(format!("whisper-{model_size}.onnx"));
+        // Download model files from HuggingFace Hub
+        tracing::info!("Loading Whisper model: {}", model_id);
+        let api = Api::new().map_err(|e| {
+            ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                "Failed to initialize HuggingFace API: {e}"
+            )))
+        })?;
 
-        if !model_file.exists() {
-            return Err(ScribeError::Transcription(TranscriptionError::ModelError(
-                format!(
-                    "Model not found: {}. Please download the ONNX model first.\n\
-                     Download from: https://github.com/openai/whisper and convert to ONNX format,\n\
-                     or use pre-converted models from Hugging Face.",
-                    model_file.display()
-                ),
-            )));
+        let repo = api.repo(Repo::with_revision(
+            model_id.to_string(),
+            RepoType::Model,
+            revision.to_string(),
+        ));
+
+        let config_path = repo.get("config.json").map_err(|e| {
+            ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                "Failed to download config.json: {e}"
+            )))
+        })?;
+
+        let tokenizer_path = repo.get("tokenizer.json").map_err(|e| {
+            ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                "Failed to download tokenizer.json: {e}"
+            )))
+        })?;
+
+        let weights_path = repo.get("model.safetensors").map_err(|e| {
+            ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                "Failed to download model.safetensors: {e}"
+            )))
+        })?;
+
+        // Load config
+        let config: Config =
+            serde_json::from_str(&std::fs::read_to_string(&config_path).map_err(|e| {
+                ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                    "Failed to read config: {e}"
+                )))
+            })?)
+            .map_err(|e| {
+                ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                    "Failed to parse config: {e}"
+                )))
+            })?;
+
+        // Load tokenizer
+        let tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(E::msg)
+            .map_err(|e| {
+                ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                    "Failed to load tokenizer: {e}"
+                )))
+            })?;
+
+        // Load mel filters
+        let mel_bytes = match config.num_mel_bins {
+            80 => include_bytes!("../../assets/melfilters80.bytes").as_slice(),
+            128 => include_bytes!("../../assets/melfilters128.bytes").as_slice(),
+            n => {
+                return Err(ScribeError::Transcription(TranscriptionError::ModelError(
+                    format!("Unsupported mel bins: {n}"),
+                )))
+            }
+        };
+
+        let mut mel_filters = vec![0f32; mel_bytes.len() / 4];
+        LittleEndian::read_f32_into(mel_bytes, &mut mel_filters);
+
+        // Load model weights
+        let vb = unsafe {
+            VarBuilder::from_mmaped_safetensors(&[weights_path], m::DTYPE, device).map_err(|e| {
+                ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                    "Failed to load model weights: {e}"
+                )))
+            })?
+        };
+
+        let model = m::model::Whisper::load(&vb, config.clone()).map_err(|e| {
+            ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                "Failed to initialize model: {e}"
+            )))
+        })?;
+
+        tracing::info!("Model loaded successfully");
+        Ok((config, tokenizer, WhisperModel::Normal(model), mel_filters))
+    }
+
+    /// Get token ID from tokenizer
+    fn token_id(tokenizer: &Tokenizer, token: &str) -> Result<u32> {
+        tokenizer.token_to_id(token).ok_or_else(|| {
+            ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                "Token not found: {token}"
+            )))
+        })
+    }
+
+    /// Run inference on mel spectrogram (non-async, for use in blocking context)
+    fn decode_blocking(params: DecodeParams) -> Result<String> {
+        let DecodeParams {
+            model,
+            tokenizer,
+            mel,
+            device,
+            config,
+            language_token,
+            sot_token,
+            transcribe_token,
+            eot_token,
+            no_timestamps_token,
+        } = params;
+        // Encode audio to features
+        let audio_features = model.encoder_forward(mel, true).map_err(|e| {
+            ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                "Encoder forward failed: {e}"
+            )))
+        })?;
+
+        // Initialize token sequence
+        let mut tokens = vec![sot_token];
+        if let Some(lang_token) = language_token {
+            tokens.push(lang_token);
+        }
+        tokens.push(transcribe_token);
+        tokens.push(no_timestamps_token);
+
+        // Autoregressive decoding
+        let sample_len = config.max_target_positions / 2;
+        for i in 0..sample_len {
+            let tokens_t = Tensor::new(tokens.as_slice(), device).map_err(|e| {
+                ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                    "Failed to create token tensor: {e}"
+                )))
+            })?;
+
+            let tokens_t = tokens_t.unsqueeze(0).map_err(|e| {
+                ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                    "Failed to unsqueeze tokens: {e}"
+                )))
+            })?;
+
+            let ys = model
+                .decoder_forward(&tokens_t, &audio_features, i == 0)
+                .map_err(|e| {
+                    ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                        "Decoder forward failed: {e}"
+                    )))
+                })?;
+
+            let logits = model
+                .decoder_final_linear(&ys.i((..1,)).map_err(|e| {
+                    ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                        "Failed to slice ys: {e}"
+                    )))
+                })?)
+                .map_err(|e| {
+                    ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                        "Final linear failed: {e}"
+                    )))
+                })?
+                .i(0)
+                .map_err(|e| {
+                    ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                        "Failed to index logits: {e}"
+                    )))
+                })?
+                .i(tokens.len() - 1)
+                .map_err(|e| {
+                    ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                        "Failed to index logits: {e}"
+                    )))
+                })?;
+
+            let next_token = logits
+                .argmax(0)
+                .map_err(|e| {
+                    ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                        "Argmax failed: {e}"
+                    )))
+                })?
+                .to_scalar::<u32>()
+                .map_err(|e| {
+                    ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                        "Failed to convert token to scalar: {e}"
+                    )))
+                })?;
+
+            tokens.push(next_token);
+
+            if next_token == eot_token {
+                break;
+            }
         }
 
-        Ok(model_file)
+        // Decode tokens to text
+        let text = tokenizer
+            .decode(&tokens, true)
+            .map_err(E::msg)
+            .map_err(|e| {
+                ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                    "Failed to decode tokens: {e}"
+                )))
+            })?;
+
+        Ok(text)
     }
 
     /// Convert i16 audio samples to f32 normalized for Whisper
@@ -113,46 +389,64 @@ impl LocalBackend {
 #[async_trait]
 impl TranscriptionBackend for LocalBackend {
     async fn transcribe(&self, audio: &[i16]) -> Result<String> {
-        // Clone session handle for blocking task
-        // Note: This is a simplified implementation. Full Whisper ONNX integration
-        // requires proper mel spectrogram computation, encoder-decoder architecture,
-        // and token decoding. This is a placeholder that shows the structure.
-
+        // Normalize audio
         let audio_f32 = Self::normalize_audio(audio);
-        let language = self.language.clone();
-        let initial_prompt = self.initial_prompt.clone();
 
-        // Run inference in blocking task to avoid blocking async runtime
-        tokio::task::spawn_blocking(move || {
-            // TODO: Implement full Whisper ONNX pipeline:
-            // 1. Compute mel spectrogram from audio_f32
-            // 2. Run encoder on mel spectrogram
-            // 3. Run decoder with language tokens
-            // 4. Decode output tokens to text
-            //
-            // For now, return placeholder to demonstrate architecture
-            tracing::warn!("Local ONNX backend not fully implemented - using placeholder");
+        // Clone Arc'd data for spawn_blocking
+        let model = Arc::clone(&self.model);
+        let tokenizer = Arc::clone(&self.tokenizer);
+        let mel_filters = Arc::clone(&self.mel_filters);
+        let config = self.config.clone();
+        let device = self.device.clone();
+        let language_token = self.language_token;
+        let sot_token = self.sot_token;
+        let transcribe_token = self.transcribe_token;
+        let eot_token = self.eot_token;
+        let no_timestamps_token = self.no_timestamps_token;
 
-            // Placeholder implementation
-            let _lang = language;
-            let _prompt = initial_prompt;
-            let _audio_len = audio_f32.len();
+        // Run inference in blocking task
+        let result = tokio::task::spawn_blocking(move || {
+            // Compute mel spectrogram
+            let mel = audio::pcm_to_mel(&config, &audio_f32, &mel_filters);
+            let mel_len = mel.len();
+            let num_mel_bins = config.num_mel_bins;
+            let mel_tensor =
+                Tensor::from_vec(mel, (1, num_mel_bins, mel_len / num_mel_bins), &device).map_err(
+                    |e| {
+                        ScribeError::Transcription(TranscriptionError::ModelError(format!(
+                            "Failed to create mel tensor: {e}"
+                        )))
+                    },
+                )?;
 
-            // In real implementation, this would be:
-            // let mel = compute_mel_spectrogram(&audio_f32)?;
-            // let encoder_output = session.run(encoder_inputs)?;
-            // let tokens = session.run(decoder_inputs)?;
-            // let text = decode_tokens(tokens)?;
+            // Lock model and run inference
+            let mut model_guard = model.lock().map_err(|_| {
+                ScribeError::Transcription(TranscriptionError::ModelError(
+                    "Failed to lock model mutex".to_string(),
+                ))
+            })?;
 
-            let text = String::from("Placeholder transcription");
-            Ok(Self::post_process(&text))
+            Self::decode_blocking(DecodeParams {
+                model: &mut model_guard,
+                tokenizer: &tokenizer,
+                mel: &mel_tensor,
+                device: &device,
+                config: &config,
+                language_token,
+                sot_token,
+                transcribe_token,
+                eot_token,
+                no_timestamps_token,
+            })
         })
         .await
         .map_err(|e| {
             ScribeError::Transcription(TranscriptionError::ModelError(format!(
                 "Transcription task panicked: {e}"
             )))
-        })?
+        })??;
+
+        Ok(Self::post_process(&result))
     }
 
     fn backend_name(&self) -> &'static str {
@@ -185,18 +479,5 @@ mod tests {
         );
         assert_eq!(LocalBackend::post_process("test"), "test ");
         assert_eq!(LocalBackend::post_process(""), String::new());
-    }
-
-    #[test]
-    fn test_get_model_path_format() {
-        let result = LocalBackend::get_model_path("base");
-        // Should return an error since model doesn't exist in test environment
-        assert!(result.is_err());
-
-        if let Err(ScribeError::Transcription(TranscriptionError::ModelError(msg))) = result {
-            assert!(msg.contains("whisper-base.onnx"));
-        } else {
-            panic!("Expected ModelError");
-        }
     }
 }
