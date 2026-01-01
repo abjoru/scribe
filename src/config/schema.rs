@@ -11,6 +11,7 @@ pub struct Config {
     pub transcription: TranscriptionConfig,
     pub injection: InjectionConfig,
     pub notifications: NotificationConfig,
+    pub logging: LoggingConfig,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -80,6 +81,15 @@ pub struct NotificationConfig {
     pub preview_length: usize,
 }
 
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct LoggingConfig {
+    /// Log level: "debug", "info", "warn", "error"
+    #[serde(default = "default_log_level")]
+    pub level: String,
+    /// Optional log file path (null = stderr only)
+    pub file: Option<String>,
+}
+
 // Default value functions
 const fn default_sample_rate() -> u32 {
     16000
@@ -120,6 +130,9 @@ const fn default_true() -> bool {
 const fn default_preview_length() -> usize {
     50
 }
+fn default_log_level() -> String {
+    "info".to_string()
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -153,6 +166,10 @@ impl Default for Config {
                 enable_errors: default_true(),
                 show_preview: default_true(),
                 preview_length: default_preview_length(),
+            },
+            logging: LoggingConfig {
+                level: default_log_level(),
+                file: None,
             },
         }
     }
@@ -199,6 +216,7 @@ impl Config {
         self.validate_transcription()?;
         self.validate_injection()?;
         self.validate_notifications()?;
+        self.validate_logging()?;
         Ok(())
     }
 
@@ -348,6 +366,17 @@ impl Config {
 
         Ok(())
     }
+
+    fn validate_logging(&self) -> Result<()> {
+        const VALID_LEVELS: &[&str] = &["debug", "info", "warn", "error"];
+        if !VALID_LEVELS.contains(&self.logging.level.as_str()) {
+            return Err(ScribeError::Config(format!(
+                "Invalid log level: '{}'. Must be one of: {:?}",
+                self.logging.level, VALID_LEVELS
+            )));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -378,6 +407,8 @@ mod tests {
         assert!(config.notifications.enable_errors);
         assert!(config.notifications.show_preview);
         assert_eq!(config.notifications.preview_length, 50);
+        assert_eq!(config.logging.level, "info");
+        assert_eq!(config.logging.file, None);
     }
 
     #[test]
@@ -608,6 +639,7 @@ mod tests {
         assert!(toml_str.contains("[transcription]"));
         assert!(toml_str.contains("[injection]"));
         assert!(toml_str.contains("[notifications]"));
+        assert!(toml_str.contains("[logging]"));
     }
 
     #[test]
@@ -636,12 +668,16 @@ mod tests {
             enable_errors = true
             show_preview = true
             preview_length = 50
+
+            [logging]
+            level = "info"
         "#;
 
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.audio.sample_rate, 16000);
         assert_eq!(config.vad.aggressiveness, 2);
         assert_eq!(config.transcription.backend, "local");
+        assert_eq!(config.logging.level, "info");
     }
 
     #[test]
@@ -662,6 +698,8 @@ mod tests {
             method = "dotool"
 
             [notifications]
+
+            [logging]
         "#;
 
         let config: Config = toml::from_str(toml_str).unwrap();
@@ -674,6 +712,28 @@ mod tests {
         assert_eq!(config.transcription.language, "es");
         assert_eq!(config.injection.delay_ms, 2);
         assert!(config.notifications.enable_status);
+        assert_eq!(config.logging.level, "info");
+    }
+
+    #[test]
+    fn test_valid_log_levels() {
+        for level in &["debug", "info", "warn", "error"] {
+            let mut config = Config::default();
+            config.logging.level = level.to_string();
+            assert!(config.validate_logging().is_ok());
+        }
+    }
+
+    #[test]
+    fn test_invalid_log_level() {
+        let mut config = Config::default();
+        config.logging.level = "trace".to_string();
+        let result = config.validate_logging();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid log level"));
     }
 
     #[test]
