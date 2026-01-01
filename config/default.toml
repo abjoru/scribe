@@ -17,12 +17,26 @@ min_duration_ms = 500
 skip_initial_ms = 150
 
 [transcription]
-# Backend: "local" or "api"
+# Backend: "local" or "openai"
 backend = "local"
-# Model: "tiny", "base", "small", "medium", "large"
+
+# Local backend settings
+# Model size: "tiny", "base", "small", "medium", "large"
 model = "base"
-# Language code (e.g., "en", "es", "fr")
+# Device: "cpu", "cuda", "auto"
+device = "auto"
+# Language code (e.g., "en", "es", "fr") or empty for auto-detect
 language = "en"
+# Initial prompt for better context (optional)
+# initial_prompt = ""
+
+# OpenAI API backend settings
+# Environment variable containing API key
+api_key_env = "OPENAI_API_KEY"
+# OpenAI model name
+api_model = "whisper-1"
+# API request timeout in seconds
+api_timeout_secs = 30
 
 [injection]
 # Method: "dotool" (recommended)
