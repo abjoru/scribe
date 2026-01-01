@@ -1,4 +1,7 @@
+use crate::error::{Result, ScribeError};
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 
 /// Main configuration structure
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -125,6 +128,499 @@ impl Default for Config {
                 show_preview: default_true(),
                 preview_length: default_preview_length(),
             },
+        }
+    }
+}
+
+impl Config {
+    /// Load configuration from ~/.config/scribe/config.toml
+    /// Falls back to embedded defaults if file doesn't exist
+    /// Merges partial configs with defaults
+    pub fn load() -> Result<Self> {
+        let config_path = Self::config_path()?;
+
+        let config = if config_path.exists() {
+            let content = fs::read_to_string(&config_path)
+                .map_err(|e| ScribeError::Config(format!("Failed to read config file: {e}")))?;
+
+            toml::from_str(&content)
+                .map_err(|e| ScribeError::Config(format!("Failed to parse config file: {e}")))?
+        } else {
+            Self::default()
+        };
+
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Get the config file path: `$XDG_CONFIG_HOME/scribe/config.toml` or `~/.config/scribe/config.toml`
+    fn config_path() -> Result<PathBuf> {
+        let config_dir = if let Ok(xdg_config) = std::env::var("XDG_CONFIG_HOME") {
+            PathBuf::from(xdg_config)
+        } else {
+            let home = std::env::var("HOME")
+                .map_err(|_| ScribeError::Config("HOME env var not set".to_string()))?;
+            PathBuf::from(home).join(".config")
+        };
+
+        Ok(config_dir.join("scribe").join("config.toml"))
+    }
+
+    /// Validate all configuration values
+    pub fn validate(&self) -> Result<()> {
+        self.validate_audio()?;
+        self.validate_vad()?;
+        self.validate_transcription()?;
+        self.validate_injection()?;
+        self.validate_notifications()?;
+        Ok(())
+    }
+
+    fn validate_audio(&self) -> Result<()> {
+        const VALID_RATES: &[u32] = &[8000, 16000, 48000];
+        if !VALID_RATES.contains(&self.audio.sample_rate) {
+            return Err(ScribeError::Config(format!(
+                "Invalid sample_rate: {}. Must be one of: {:?}",
+                self.audio.sample_rate, VALID_RATES
+            )));
+        }
+        Ok(())
+    }
+
+    fn validate_vad(&self) -> Result<()> {
+        if self.vad.aggressiveness > 3 {
+            return Err(ScribeError::Config(format!(
+                "Invalid VAD aggressiveness: {}. Must be 0-3",
+                self.vad.aggressiveness
+            )));
+        }
+
+        if self.vad.silence_ms == 0 {
+            return Err(ScribeError::Config(
+                "silence_ms must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.vad.silence_ms > 10000 {
+            return Err(ScribeError::Config(format!(
+                "silence_ms too large: {}. Should be < 10000ms",
+                self.vad.silence_ms
+            )));
+        }
+
+        if self.vad.min_duration_ms == 0 {
+            return Err(ScribeError::Config(
+                "min_duration_ms must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.vad.min_duration_ms > 5000 {
+            return Err(ScribeError::Config(format!(
+                "min_duration_ms too large: {}. Should be < 5000ms",
+                self.vad.min_duration_ms
+            )));
+        }
+
+        if self.vad.skip_initial_ms > 1000 {
+            return Err(ScribeError::Config(format!(
+                "skip_initial_ms too large: {}. Should be < 1000ms",
+                self.vad.skip_initial_ms
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn validate_transcription(&self) -> Result<()> {
+        const VALID_BACKENDS: &[&str] = &["local", "api"];
+        const VALID_MODELS: &[&str] = &["tiny", "base", "small", "medium", "large"];
+
+        if !VALID_BACKENDS.contains(&self.transcription.backend.as_str()) {
+            return Err(ScribeError::Config(format!(
+                "Invalid backend: '{}'. Must be one of: {:?}",
+                self.transcription.backend, VALID_BACKENDS
+            )));
+        }
+
+        if !VALID_MODELS.contains(&self.transcription.model.as_str()) {
+            return Err(ScribeError::Config(format!(
+                "Invalid model: '{}'. Must be one of: {:?}",
+                self.transcription.model, VALID_MODELS
+            )));
+        }
+
+        if self.transcription.language.len() != 2 {
+            return Err(ScribeError::Config(format!(
+                "Invalid language code: '{}'. Must be 2-letter ISO code (e.g., 'en', 'es')",
+                self.transcription.language
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn validate_injection(&self) -> Result<()> {
+        const VALID_METHODS: &[&str] = &["dotool"];
+        if !VALID_METHODS.contains(&self.injection.method.as_str()) {
+            return Err(ScribeError::Config(format!(
+                "Invalid injection method: '{}'. Must be one of: {:?}",
+                self.injection.method, VALID_METHODS
+            )));
+        }
+
+        if self.injection.delay_ms > 100 {
+            return Err(ScribeError::Config(format!(
+                "delay_ms too large: {}. Should be < 100ms for reasonable typing speed",
+                self.injection.delay_ms
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn validate_notifications(&self) -> Result<()> {
+        if self.notifications.preview_length == 0 {
+            return Err(ScribeError::Config(
+                "preview_length must be greater than 0".to_string(),
+            ));
+        }
+
+        if self.notifications.preview_length > 500 {
+            return Err(ScribeError::Config(format!(
+                "preview_length too large: {}. Should be < 500",
+                self.notifications.preview_length
+            )));
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config_is_valid() {
+        let config = Config::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_default_values() {
+        let config = Config::default();
+        assert_eq!(config.audio.sample_rate, 16000);
+        assert_eq!(config.audio.device, None);
+        assert_eq!(config.vad.aggressiveness, 2);
+        assert_eq!(config.vad.silence_ms, 900);
+        assert_eq!(config.vad.min_duration_ms, 500);
+        assert_eq!(config.vad.skip_initial_ms, 150);
+        assert_eq!(config.transcription.backend, "local");
+        assert_eq!(config.transcription.model, "base");
+        assert_eq!(config.transcription.language, "en");
+        assert_eq!(config.injection.method, "dotool");
+        assert_eq!(config.injection.delay_ms, 2);
+        assert!(config.notifications.enable_status);
+        assert!(config.notifications.enable_errors);
+        assert!(config.notifications.show_preview);
+        assert_eq!(config.notifications.preview_length, 50);
+    }
+
+    #[test]
+    fn test_valid_sample_rates() {
+        for &rate in &[8000u32, 16000, 48000] {
+            let mut config = Config::default();
+            config.audio.sample_rate = rate;
+            assert!(config.validate_audio().is_ok());
+        }
+    }
+
+    #[test]
+    fn test_invalid_sample_rate() {
+        let mut config = Config::default();
+        config.audio.sample_rate = 44100;
+        let result = config.validate_audio();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid sample_rate"));
+    }
+
+    #[test]
+    fn test_valid_vad_aggressiveness() {
+        for aggressiveness in 0..=3 {
+            let mut config = Config::default();
+            config.vad.aggressiveness = aggressiveness;
+            assert!(config.validate_vad().is_ok());
+        }
+    }
+
+    #[test]
+    fn test_invalid_vad_aggressiveness() {
+        let mut config = Config::default();
+        config.vad.aggressiveness = 4;
+        let result = config.validate_vad();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("aggressiveness"));
+    }
+
+    #[test]
+    fn test_vad_silence_ms_bounds() {
+        let mut config = Config::default();
+
+        config.vad.silence_ms = 0;
+        assert!(config.validate_vad().is_err());
+
+        config.vad.silence_ms = 1;
+        assert!(config.validate_vad().is_ok());
+
+        config.vad.silence_ms = 10000;
+        assert!(config.validate_vad().is_ok());
+
+        config.vad.silence_ms = 10001;
+        assert!(config.validate_vad().is_err());
+    }
+
+    #[test]
+    fn test_vad_min_duration_ms_bounds() {
+        let mut config = Config::default();
+
+        config.vad.min_duration_ms = 0;
+        assert!(config.validate_vad().is_err());
+
+        config.vad.min_duration_ms = 1;
+        assert!(config.validate_vad().is_ok());
+
+        config.vad.min_duration_ms = 5000;
+        assert!(config.validate_vad().is_ok());
+
+        config.vad.min_duration_ms = 5001;
+        assert!(config.validate_vad().is_err());
+    }
+
+    #[test]
+    fn test_vad_skip_initial_ms_bounds() {
+        let mut config = Config::default();
+
+        config.vad.skip_initial_ms = 0;
+        assert!(config.validate_vad().is_ok());
+
+        config.vad.skip_initial_ms = 1000;
+        assert!(config.validate_vad().is_ok());
+
+        config.vad.skip_initial_ms = 1001;
+        assert!(config.validate_vad().is_err());
+    }
+
+    #[test]
+    fn test_valid_transcription_backends() {
+        for backend in &["local", "api"] {
+            let mut config = Config::default();
+            config.transcription.backend = backend.to_string();
+            assert!(config.validate_transcription().is_ok());
+        }
+    }
+
+    #[test]
+    fn test_invalid_transcription_backend() {
+        let mut config = Config::default();
+        config.transcription.backend = "invalid".to_string();
+        let result = config.validate_transcription();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid backend"));
+    }
+
+    #[test]
+    fn test_valid_transcription_models() {
+        for model in &["tiny", "base", "small", "medium", "large"] {
+            let mut config = Config::default();
+            config.transcription.model = model.to_string();
+            assert!(config.validate_transcription().is_ok());
+        }
+    }
+
+    #[test]
+    fn test_invalid_transcription_model() {
+        let mut config = Config::default();
+        config.transcription.model = "invalid".to_string();
+        let result = config.validate_transcription();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid model"));
+    }
+
+    #[test]
+    fn test_valid_language_codes() {
+        for lang in &["en", "es", "fr", "de", "it", "ja", "zh"] {
+            let mut config = Config::default();
+            config.transcription.language = lang.to_string();
+            assert!(config.validate_transcription().is_ok());
+        }
+    }
+
+    #[test]
+    fn test_invalid_language_code() {
+        let mut config = Config::default();
+        config.transcription.language = "english".to_string();
+        let result = config.validate_transcription();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid language code"));
+    }
+
+    #[test]
+    fn test_valid_injection_method() {
+        let mut config = Config::default();
+        config.injection.method = "dotool".to_string();
+        assert!(config.validate_injection().is_ok());
+    }
+
+    #[test]
+    fn test_invalid_injection_method() {
+        let mut config = Config::default();
+        config.injection.method = "invalid".to_string();
+        let result = config.validate_injection();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid injection method"));
+    }
+
+    #[test]
+    fn test_injection_delay_ms_bounds() {
+        let mut config = Config::default();
+
+        config.injection.delay_ms = 0;
+        assert!(config.validate_injection().is_ok());
+
+        config.injection.delay_ms = 100;
+        assert!(config.validate_injection().is_ok());
+
+        config.injection.delay_ms = 101;
+        assert!(config.validate_injection().is_err());
+    }
+
+    #[test]
+    fn test_notification_preview_length_bounds() {
+        let mut config = Config::default();
+
+        config.notifications.preview_length = 0;
+        assert!(config.validate_notifications().is_err());
+
+        config.notifications.preview_length = 1;
+        assert!(config.validate_notifications().is_ok());
+
+        config.notifications.preview_length = 500;
+        assert!(config.validate_notifications().is_ok());
+
+        config.notifications.preview_length = 501;
+        assert!(config.validate_notifications().is_err());
+    }
+
+    #[test]
+    fn test_toml_serialization() {
+        let config = Config::default();
+        let toml_str = toml::to_string(&config).unwrap();
+        assert!(toml_str.contains("[audio]"));
+        assert!(toml_str.contains("[vad]"));
+        assert!(toml_str.contains("[transcription]"));
+        assert!(toml_str.contains("[injection]"));
+        assert!(toml_str.contains("[notifications]"));
+    }
+
+    #[test]
+    fn test_toml_deserialization() {
+        let toml_str = r#"
+            [audio]
+            sample_rate = 16000
+
+            [vad]
+            aggressiveness = 2
+            silence_ms = 900
+            min_duration_ms = 500
+            skip_initial_ms = 150
+
+            [transcription]
+            backend = "local"
+            model = "base"
+            language = "en"
+
+            [injection]
+            method = "dotool"
+            delay_ms = 2
+
+            [notifications]
+            enable_status = true
+            enable_errors = true
+            show_preview = true
+            preview_length = 50
+        "#;
+
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.audio.sample_rate, 16000);
+        assert_eq!(config.vad.aggressiveness, 2);
+        assert_eq!(config.transcription.backend, "local");
+    }
+
+    #[test]
+    fn test_partial_config_with_defaults() {
+        let toml_str = r#"
+            [audio]
+            sample_rate = 48000
+
+            [vad]
+            aggressiveness = 3
+
+            [transcription]
+            backend = "api"
+            model = "small"
+            language = "es"
+
+            [injection]
+            method = "dotool"
+
+            [notifications]
+        "#;
+
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.audio.sample_rate, 48000);
+        assert_eq!(config.audio.device, None);
+        assert_eq!(config.vad.aggressiveness, 3);
+        assert_eq!(config.vad.silence_ms, 900);
+        assert_eq!(config.transcription.backend, "api");
+        assert_eq!(config.transcription.model, "small");
+        assert_eq!(config.transcription.language, "es");
+        assert_eq!(config.injection.delay_ms, 2);
+        assert!(config.notifications.enable_status);
+    }
+
+    #[test]
+    fn test_config_path_with_xdg_config_home() {
+        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        std::env::set_var("XDG_CONFIG_HOME", "/tmp/test-config");
+        let path = Config::config_path().unwrap();
+        assert_eq!(path, PathBuf::from("/tmp/test-config/scribe/config.toml"));
+
+        if let Some(val) = original {
+            std::env::set_var("XDG_CONFIG_HOME", val);
+        } else {
+            std::env::remove_var("XDG_CONFIG_HOME");
+        }
+    }
+
+    #[test]
+    fn test_config_path_without_xdg_config_home() {
+        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        std::env::remove_var("XDG_CONFIG_HOME");
+        let home = std::env::var("HOME").unwrap();
+        let path = Config::config_path().unwrap();
+        assert_eq!(path, PathBuf::from(home).join(".config/scribe/config.toml"));
+
+        if let Some(val) = original {
+            std::env::set_var("XDG_CONFIG_HOME", val);
         }
     }
 }
