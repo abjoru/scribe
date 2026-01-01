@@ -34,15 +34,25 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logging
-    tracing_subscriber::fmt::init();
-
     let cli = Cli::parse();
+
+    // Load config early for logging setup
+    let config = Config::load()?;
+
+    // Initialize logging with config-based level
+    let log_level = config.logging.level.as_str();
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
+
+    tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .with_target(false)
+        .init();
 
     match cli.command {
         None | Some(Commands::Daemon) => {
             tracing::info!("Starting Scribe daemon");
-            run_daemon().await
+            run_daemon(config).await
         }
         Some(Commands::Toggle) => run_client(Command::Toggle).await,
         Some(Commands::Start) => run_client(Command::Start).await,
@@ -61,34 +71,53 @@ enum AppState {
     Transcribing,
 }
 
+impl std::fmt::Debug for AppState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Idle => write!(f, "Idle"),
+            Self::Recording { frames, .. } => write!(f, "Recording(frames: {})", frames.len()),
+            Self::Transcribing => write!(f, "Transcribing"),
+        }
+    }
+}
+
 #[allow(clippy::too_many_lines)] // Complex state machine requires many lines
 #[allow(clippy::future_not_send)] // Not spawning across threads, runs in main event loop
-async fn run_daemon() -> Result<()> {
-    tracing::info!("Loading configuration");
-    let config = Config::load()?;
-
+async fn run_daemon(config: Config) -> Result<()> {
     tracing::info!("Initializing components");
 
     // Initialize transcription backend
+    tracing::debug!(
+        backend = %config.transcription.backend,
+        model = %config.transcription.model,
+        "Loading transcription backend"
+    );
     let backend = Backend::from_config(&config.transcription)?;
-    tracing::info!("Using transcription backend: {}", backend.backend_name());
+    tracing::info!(
+        backend = %backend.backend_name(),
+        "Transcription backend initialized"
+    );
 
     // Initialize text injector
-    let mut text_injector = TextInjector::new(config.injection.delay_ms)?;
-    tracing::info!(
-        "Text injector initialized with {}ms delay",
-        config.injection.delay_ms
+    tracing::debug!(
+        method = %config.injection.method,
+        delay_ms = config.injection.delay_ms,
+        "Initializing text injector"
     );
+    let mut text_injector = TextInjector::new(config.injection.delay_ms)?;
+    tracing::info!("Text injector initialized");
 
     // Create channels for IPC communication
     let (command_tx, mut command_rx) = mpsc::channel::<Command>(32);
     let (status_tx, status_rx) = mpsc::channel::<AppStatus>(32);
+    tracing::debug!("IPC channels created");
 
     // Start IPC server in background
     let ipc_server = IpcServer::new(command_tx.clone(), status_rx)?;
+    tracing::info!("Starting IPC server");
     tokio::spawn(async move {
         if let Err(e) = ipc_server.start().await {
-            tracing::error!("IPC server error: {e}");
+            tracing::error!(error = %e, "IPC server error");
         }
     });
 
@@ -99,7 +128,8 @@ async fn run_daemon() -> Result<()> {
     // Send initial status
     status_tx.send(current_status.clone()).await.ok();
 
-    tracing::info!("Daemon started, waiting for commands");
+    tracing::info!("Daemon fully initialized and ready");
+    tracing::debug!("Entering main event loop");
 
     // Set up signal handler for graceful shutdown
     let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())
@@ -126,100 +156,122 @@ async fn run_daemon() -> Result<()> {
 
                 match cmd {
                     Command::Toggle => {
+                        tracing::debug!(state = ?app_state, "Processing Toggle command");
                         match &mut app_state {
                             AppState::Idle => {
                                 // Start recording
+                                tracing::info!("Toggle: starting recording");
                                 match start_recording(&config) {
                                     Ok((stream, frames)) => {
-                                        tracing::info!("Recording started");
+                                        tracing::info!("Recording started successfully");
                                         app_state = AppState::Recording { audio_stream: stream, frames };
                                         current_status = AppStatus::Recording;
                                         status_tx.send(current_status.clone()).await.ok();
                                     }
                                     Err(e) => {
-                                        tracing::error!("Failed to start recording: {e}");
+                                        tracing::error!(error = %e, "Failed to start recording");
                                     }
                                 }
                             }
                             AppState::Recording { .. } => {
                                 // Stop recording and transcribe
+                                tracing::info!("Toggle: stopping recording");
                                 if let AppState::Recording { audio_stream, frames } =
                                     std::mem::replace(&mut app_state, AppState::Transcribing)
                                 {
                                     audio_stream.stop();
-                                    tracing::info!("Recording stopped, {} frames collected", frames.len());
+                                    tracing::info!(
+                                        frame_count = frames.len(),
+                                        "Recording stopped, processing audio"
+                                    );
                                     current_status = AppStatus::Transcribing;
                                     status_tx.send(current_status.clone()).await.ok();
 
                                     // Process recording
                                     match process_recording(frames, &config, &backend, &mut text_injector).await {
                                         Ok(Some(text)) => {
-                                            tracing::info!("Transcription complete: '{}'", text);
+                                            tracing::info!(
+                                                text_length = text.len(),
+                                                text = %text,
+                                                "Transcription and injection successful"
+                                            );
                                         }
                                         Ok(None) => {
                                             tracing::info!("No speech detected in recording");
                                         }
                                         Err(e) => {
-                                            tracing::error!("Transcription failed: {e}");
+                                            tracing::error!(error = %e, "Transcription failed");
                                         }
                                     }
                                     current_status = AppStatus::Idle;
                                     status_tx.send(current_status.clone()).await.ok();
 
                                     app_state = AppState::Idle;
+                                    tracing::debug!("Returned to idle state");
                                 }
                             }
                             AppState::Transcribing => {
-                                tracing::warn!("Cannot toggle while transcribing");
+                                tracing::warn!("Ignoring toggle command: currently transcribing");
                             }
                         }
                     }
 
                     Command::Start => {
+                        tracing::debug!(state = ?app_state, "Processing Start command");
                         if matches!(app_state, AppState::Idle) {
+                            tracing::info!("Starting recording");
                             match start_recording(&config) {
                                 Ok((stream, frames)) => {
-                                    tracing::info!("Recording started");
+                                    tracing::info!("Recording started successfully");
                                     app_state = AppState::Recording { audio_stream: stream, frames };
                                     current_status = AppStatus::Recording;
                                     status_tx.send(current_status.clone()).await.ok();
                                 }
                                 Err(e) => {
-                                    tracing::error!("Failed to start recording: {e}");
+                                    tracing::error!(error = %e, "Failed to start recording");
                                 }
                             }
                         } else {
-                            tracing::warn!("Already recording or transcribing");
+                            tracing::warn!(state = ?app_state, "Cannot start: not in idle state");
                         }
                     }
 
                     Command::Stop => {
+                        tracing::debug!(state = ?app_state, "Processing Stop command");
                         if let AppState::Recording { audio_stream, frames } =
                             std::mem::replace(&mut app_state, AppState::Transcribing)
                         {
                             audio_stream.stop();
-                            tracing::info!("Recording stopped, {} frames collected", frames.len());
+                            tracing::info!(
+                                frame_count = frames.len(),
+                                "Recording stopped, processing audio"
+                            );
                             current_status = AppStatus::Transcribing;
                             status_tx.send(current_status.clone()).await.ok();
 
                             // Process recording synchronously
                             match process_recording(frames, &config, &backend, &mut text_injector).await {
                                 Ok(Some(text)) => {
-                                    tracing::info!("Transcription complete: '{}'", text);
+                                    tracing::info!(
+                                        text_length = text.len(),
+                                        text = %text,
+                                        "Transcription and injection successful"
+                                    );
                                 }
                                 Ok(None) => {
                                     tracing::info!("No speech detected in recording");
                                 }
                                 Err(e) => {
-                                    tracing::error!("Transcription failed: {e}");
+                                    tracing::error!(error = %e, "Transcription failed");
                                 }
                             }
                             current_status = AppStatus::Idle;
                             status_tx.send(current_status.clone()).await.ok();
 
                             app_state = AppState::Idle;
+                            tracing::debug!("Returned to idle state");
                         } else {
-                            tracing::warn!("Not currently recording");
+                            tracing::warn!(state = ?app_state, "Cannot stop: not currently recording");
                         }
                     }
 
@@ -240,6 +292,9 @@ async fn run_daemon() -> Result<()> {
             } => {
                 if let Some((frame, frames)) = frame {
                     frames.push(frame);
+                    if frames.len() % 100 == 0 {
+                        tracing::trace!(frame_count = frames.len(), "Collecting audio frames");
+                    }
                 }
             }
         }
@@ -257,12 +312,18 @@ async fn run_daemon() -> Result<()> {
 fn start_recording(
     config: &Config,
 ) -> Result<(scribe::audio::capture::AudioStream, Vec<Vec<i16>>)> {
+    tracing::debug!(
+        sample_rate = config.audio.sample_rate,
+        device = ?config.audio.device,
+        "Initializing audio capture"
+    );
     let audio_capture =
         AudioCapture::new(config.audio.sample_rate, config.audio.device.as_deref())?;
 
     let audio_stream = audio_capture.start_recording()?;
     let frames = Vec::new();
 
+    tracing::debug!("Audio stream started");
     Ok((audio_stream, frames))
 }
 
@@ -284,42 +345,57 @@ async fn process_recording(
     };
 
     // Extract speech using VAD
-    tracing::debug!("Processing {} frames with VAD", frames.len());
+    tracing::debug!(
+        frame_count = frames.len(),
+        aggressiveness = vad_cfg.aggressiveness,
+        "Running VAD on recorded frames"
+    );
     let mut vad = VoiceActivityDetector::new(&vad_cfg)?;
     let speech_audio = vad.extract_speech_from_frames(frames)?;
 
     if let Some(audio) = speech_audio {
-        tracing::info!("Speech detected, {} samples, transcribing...", audio.len());
+        #[allow(clippy::cast_precision_loss)]
+        let duration_s = audio.len() as f32 / config.audio.sample_rate as f32;
+        tracing::info!(
+            sample_count = audio.len(),
+            duration_s = %format!("{duration_s:.2}"),
+            "Speech detected, starting transcription"
+        );
 
         // Transcribe
         let text = backend.transcribe(&audio).await?;
 
         if text.trim().is_empty() {
+            tracing::debug!("Transcription returned empty text");
             Ok(None)
         } else {
             // Inject text
-            tracing::info!("Injecting text: '{}'", text);
+            tracing::debug!(text = %text, "Injecting transcribed text");
             text_injector.inject(&text)?;
             Ok(Some(text))
         }
     } else {
-        tracing::debug!("No speech detected in recording");
+        tracing::debug!("VAD detected no speech in recording");
         Ok(None)
     }
 }
 
 async fn run_client(cmd: Command) -> Result<()> {
+    tracing::debug!(command = ?cmd, "Sending IPC command");
     let client = IpcClient::new()?;
     let response = client.send_command(cmd).await?;
 
     match response {
         Response::Ok => {
+            tracing::debug!("Command successful");
             println!("OK");
         }
         Response::Status(status) => {
+            tracing::debug!(status = ?status, "Received status");
             println!("{status:?}");
         }
         Response::Error(e) => {
+            tracing::error!(error = %e, "Command failed");
             eprintln!("Error: {e}");
             std::process::exit(1);
         }

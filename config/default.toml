@@ -53,3 +53,9 @@ enable_errors = true
 show_preview = true
 # Preview length in characters
 preview_length = 50
+
+[logging]
+# Log level: "debug", "info", "warn", "error"
+level = "info"
+# Optional log file path (null = stderr only)
+file = null
