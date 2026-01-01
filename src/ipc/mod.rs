@@ -26,6 +26,7 @@ pub enum AppStatus {
     Idle,
     Recording,
     Transcribing,
+    Error(String),
 }
 
 #[cfg(test)]
@@ -72,6 +73,7 @@ mod tests {
             AppStatus::Idle,
             AppStatus::Recording,
             AppStatus::Transcribing,
+            AppStatus::Error("test error".to_string()),
         ];
 
         for status in statuses {
