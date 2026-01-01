@@ -1,10 +1,14 @@
-# Scribe
+<p align="center">
+  <img src="assets/logo.svg" alt="Scribe Logo" width="300">
+</p>
 
-Fast, lean, Rust-based voice dictation system
+<h1 align="center">Scribe</h1>
+
+<p align="center">Fast, lean, Rust-based voice dictation system</p>
 
 ## Status
 
-🚧 **In Development** - Phase 0-5b Complete
+🚧 **In Development** - Phase 0-7 Complete
 - ✅ Phase 0: Project setup
 - ✅ Phase 1: Audio capture and VAD
 - ✅ Phase 2: Unix socket IPC
@@ -12,6 +16,8 @@ Fast, lean, Rust-based voice dictation system
 - ✅ Phase 4: Configuration system
 - ✅ Phase 5a: OpenAI API transcription backend
 - ✅ Phase 5b: Local Whisper (Candle) transcription backend
+- ✅ Phase 6: Main application loop
+- ✅ Phase 7: System tray icon + notifications
 
 ## Features (Planned)
 

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- Recording: Orange/red hexagon + mic (matches V8 logo) -->
+  <defs>
+    <linearGradient id="hexGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f97316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#dc2626;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Central hexagon (gradient) -->
+  <path d="M 12 4 L 18 8 L 18 16 L 12 20 L 6 16 L 6 8 Z" fill="url(#hexGrad)"/>
+
+  <!-- Microphone inside (white) -->
+  <g fill="#fff">
+    <rect x="11" y="9" width="2" height="3.5" rx="1"/>
+    <path d="M 9.5 12.5 Q 9.5 14, 12 14 Q 14.5 14, 14.5 12.5"
+          stroke="#fff" stroke-width="0.8" fill="none"/>
+    <line x1="12" y1="14" x2="12" y2="15.5" stroke="#fff" stroke-width="0.8"/>
+    <line x1="10.5" y1="15.5" x2="13.5" y2="15.5" stroke="#fff" stroke-width="0.8" stroke-linecap="round"/>
+  </g>
+
+  <!-- Sound wave indicators (optional pulse effect) -->
+  <circle cx="12" cy="12" r="10" fill="none" stroke="#f97316" stroke-width="0.5" opacity="0.3"/>
+</svg>

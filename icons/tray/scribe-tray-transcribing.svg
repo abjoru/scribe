@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- Transcribing: Blue/yellow hexagon + processing indicator -->
+  <defs>
+    <linearGradient id="processGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#3b82f6;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Central hexagon (processing gradient) -->
+  <path d="M 12 4 L 18 8 L 18 16 L 12 20 L 6 16 L 6 8 Z" fill="url(#processGrad)" opacity="0.9"/>
+
+  <!-- Spinner/processing indicator inside -->
+  <g fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round">
+    <circle cx="12" cy="12" r="4" opacity="0.2"/>
+    <path d="M 12 8 A 4 4 0 0 1 16 12"/>
+  </g>
+</svg>

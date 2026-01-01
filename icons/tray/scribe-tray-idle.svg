@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- Idle: Grey hexagon + mic (no slash) -->
+
+  <!-- Central hexagon (grey) -->
+  <path d="M 12 4 L 18 8 L 18 16 L 12 20 L 6 16 L 6 8 Z" fill="#6b7280" opacity="0.8"/>
+
+  <!-- Microphone inside (white/light grey) -->
+  <g fill="#d1d5db">
+    <rect x="11" y="9" width="2" height="3.5" rx="1"/>
+    <path d="M 9.5 12.5 Q 9.5 14, 12 14 Q 14.5 14, 14.5 12.5"
+          stroke="#d1d5db" stroke-width="0.8" fill="none"/>
+    <line x1="12" y1="14" x2="12" y2="15.5" stroke="#d1d5db" stroke-width="0.8"/>
+    <line x1="10.5" y1="15.5" x2="13.5" y2="15.5" stroke="#d1d5db" stroke-width="0.8" stroke-linecap="round"/>
+  </g>
+</svg>
