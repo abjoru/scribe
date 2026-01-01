@@ -54,6 +54,9 @@ subprocess = "0.2"
 # System tray (StatusNotifierItem)
 ksni = "0.2"
 
+# SVG rendering for tray icons
+resvg = { version = "0.44", default-features = false }
+
 # Desktop notifications
 notify-rust = "4"
 

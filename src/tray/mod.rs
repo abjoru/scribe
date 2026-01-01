@@ -34,23 +34,21 @@ impl ksni::Tray for TrayIcon {
         }
     }
 
-    fn icon_name(&self) -> String {
-        let icon_name = {
+    fn icon_pixmap(&self) -> Vec<ksni::Icon> {
+        let svg_data = {
             let status = self.status.lock().unwrap();
             match *status {
-                AppStatus::Idle => "scribe-tray-idle",
-                AppStatus::Recording => "scribe-tray-recording",
-                AppStatus::Transcribing => "scribe-tray-transcribing",
-                AppStatus::Error(_) => "scribe-tray-error",
+                AppStatus::Idle => icons::ICON_IDLE,
+                AppStatus::Recording => icons::ICON_RECORDING,
+                AppStatus::Transcribing => icons::ICON_TRANSCRIBING,
+                AppStatus::Error(_) => icons::ICON_ERROR,
             }
         };
-        icon_name.to_string()
-    }
 
-    fn icon_theme_path(&self) -> String {
-        // Point to our custom icon directory
-        // In development: use project icons, in production: use installed icons
-        env!("CARGO_MANIFEST_DIR").to_string() + "/icons/tray"
+        // Render SVG to ARGB32, return empty vec on failure
+        icons::render_svg_to_argb32(svg_data)
+            .map(|icon| vec![icon])
+            .unwrap_or_default()
     }
 
     fn title(&self) -> String {
@@ -87,31 +85,30 @@ mod tests {
     }
 
     #[test]
-    fn test_icon_names() {
+    fn test_icon_pixmap() {
         let status = Arc::new(Mutex::new(AppStatus::Idle));
         let tray = TrayIcon::new(Arc::clone(&status));
 
-        assert_eq!(tray.icon_name(), "scribe-tray-idle");
+        // Test idle icon
+        let pixmap = tray.icon_pixmap();
+        assert_eq!(pixmap.len(), 1, "Should return one icon");
+        assert_eq!(pixmap[0].width, 96);
+        assert_eq!(pixmap[0].height, 96);
 
+        // Test recording icon
         *status.lock().unwrap() = AppStatus::Recording;
-        assert_eq!(tray.icon_name(), "scribe-tray-recording");
+        let pixmap = tray.icon_pixmap();
+        assert_eq!(pixmap.len(), 1, "Should return one icon");
 
+        // Test transcribing icon
         *status.lock().unwrap() = AppStatus::Transcribing;
-        assert_eq!(tray.icon_name(), "scribe-tray-transcribing");
+        let pixmap = tray.icon_pixmap();
+        assert_eq!(pixmap.len(), 1, "Should return one icon");
 
+        // Test error icon
         *status.lock().unwrap() = AppStatus::Error("test error".to_string());
-        assert_eq!(tray.icon_name(), "scribe-tray-error");
-    }
-
-    #[test]
-    fn test_icon_theme_path() {
-        let status = Arc::new(Mutex::new(AppStatus::Idle));
-        let tray = TrayIcon::new(Arc::clone(&status));
-        let path = tray.icon_theme_path();
-
-        // Should point to our custom icon directory
-        assert!(path.ends_with("/icons/tray"));
-        assert!(path.contains("scribe"));
+        let pixmap = tray.icon_pixmap();
+        assert_eq!(pixmap.len(), 1, "Should return one icon");
     }
 
     #[test]
