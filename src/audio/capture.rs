@@ -163,6 +163,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires audio devices - may segfault in CI"]
     fn test_list_devices() {
         let devices = AudioCapture::list_devices();
         // Just verify it doesn't panic - may be empty in CI
@@ -170,6 +171,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires audio devices - may segfault in CI"]
     fn test_create_audio_capture() {
         // This may fail in CI without audio devices
         match AudioCapture::new(16000, None) {
