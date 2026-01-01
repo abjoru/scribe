@@ -1,0 +1,41 @@
+# Scribe Default Configuration
+
+[audio]
+# Sample rate in Hz (16000 is Whisper standard)
+sample_rate = 16000
+# Audio device (null = auto-detect)
+device = null
+
+[vad]
+# WebRTC VAD aggressiveness (0-3, higher = more aggressive)
+aggressiveness = 2
+# Silence threshold in milliseconds
+silence_ms = 900
+# Minimum recording duration in milliseconds
+min_duration_ms = 500
+# Skip initial milliseconds to avoid hotkey noise
+skip_initial_ms = 150
+
+[transcription]
+# Backend: "local" or "api"
+backend = "local"
+# Model: "tiny", "base", "small", "medium", "large"
+model = "base"
+# Language code (e.g., "en", "es", "fr")
+language = "en"
+
+[injection]
+# Method: "dotool" (recommended)
+method = "dotool"
+# Delay between characters in milliseconds
+delay_ms = 2
+
+[notifications]
+# Enable status notifications (recording, transcribing, complete)
+enable_status = true
+# Enable error notifications (always recommended)
+enable_errors = true
+# Show preview of transcribed text
+show_preview = true
+# Preview length in characters
+preview_length = 50
