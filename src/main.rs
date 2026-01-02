@@ -318,7 +318,10 @@ async fn run_daemon(config: Config) -> Result<()> {
                     AppState::Recording { audio_stream, frames } => {
                         audio_stream.recv().await.map(|f| (f, frames))
                     }
-                    _ => None,
+                    _ => {
+                        // Sleep indefinitely when not recording to avoid busy loop
+                        std::future::pending::<Option<(Vec<i16>, &mut Vec<Vec<i16>>)>>().await
+                    }
                 }
             } => {
                 if let Some((frame, frames)) = frame {
