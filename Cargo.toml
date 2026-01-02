@@ -21,7 +21,7 @@ candle-core = "0.8"
 candle-nn = "0.8"
 candle-transformers = "0.8"
 tokenizers = "0.15"
-hf-hub = { version = "0.4", default-features = false, features = ["tokio", "rustls-tls"] }
+hf-hub = { version = "0.4", default-features = false, features = ["tokio", "default-tls"] }
 
 # Audio processing for mel spectrogram
 byteorder = "1.5"
@@ -45,8 +45,8 @@ thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# HTTP (for API)
-reqwest = { version = "0.11", default-features = false, features = ["json", "multipart", "rustls-tls"] }
+# HTTP (for API) - use native-tls (system OpenSSL) for AUR compatibility
+reqwest = { version = "0.11", default-features = false, features = ["json", "multipart", "native-tls"] }
 
 # Process management
 subprocess = "0.2"
