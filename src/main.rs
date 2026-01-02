@@ -14,6 +14,7 @@ use tokio::sync::mpsc;
 
 #[derive(Parser)]
 #[command(name = "scribe")]
+#[command(version)]
 #[command(about = "Fast voice dictation system", long_about = None)]
 struct Cli {
     #[command(subcommand)]
