@@ -10,38 +10,21 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  create-release:
-    name: Create Release
+  build-and-release:
+    name: Build and Release
     runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-      - name: Get version from tag
-        id: get_version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
-  build-release:
-    name: Build Release
-    needs: create-release
-    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     strategy:
       matrix:
         target:
           - x86_64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -65,44 +48,60 @@ jobs:
       - name: Create archive
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf scribe-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz scribe
-          sha256sum scribe-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz > scribe-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
+          tar czf scribe-${{ steps.get_version.outputs.version }}-${{ matrix.target }}.tar.gz scribe
+          sha256sum scribe-${{ steps.get_version.outputs.version }}-${{ matrix.target }}.tar.gz > scribe-${{ steps.get_version.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
 
-      - name: Upload binary archive
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: target/${{ matrix.target }}/release/scribe-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz
-          asset_name: scribe-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz
-          asset_content_type: application/gzip
-
-      - name: Upload checksum
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: target/${{ matrix.target }}/release/scribe-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
-          asset_name: scribe-${{ needs.create-release.outputs.version }}-${{ matrix.target }}.tar.gz.sha256
-          asset_content_type: text/plain
-
-  update-aur-checksum:
-    name: Generate AUR Checksum
-    needs: create-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download source tarball and generate checksum
+      - name: Generate AUR checksum
+        id: aur_checksum
         run: |
-          VERSION=${{ needs.create-release.outputs.version }}
-          wget "https://github.com/abjoru/scribe/archive/v${VERSION}.tar.gz"
-          SHA256=$(sha256sum "v${VERSION}.tar.gz" | cut -d' ' -f1)
-          echo "Source tarball SHA256: ${SHA256}"
-          echo "Update PKGBUILD with: sha256sums=('${SHA256}')"
-          echo ""
-          echo "For AUR package, update PKGBUILD:"
-          echo "  pkgver=${VERSION}"
-          echo "  sha256sums=('${SHA256}')"
+          VERSION=${{ steps.get_version.outputs.version }}
+          wget "https://github.com/abjoru/scribe/archive/v${VERSION}.tar.gz" -O source.tar.gz
+          SHA256=$(sha256sum source.tar.gz | cut -d' ' -f1)
+          echo "sha256=${SHA256}" >> $GITHUB_OUTPUT
+          echo "## AUR Package Update" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Update PKGBUILD with:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "pkgver=${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "sha256sums=('${SHA256}')" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=${{ steps.get_version.outputs.version }}
+          gh release create v${VERSION} \
+            --title "Release v${VERSION}" \
+            --notes "Release v${VERSION}
+
+          ## Installation
+
+          ### From Binary
+          \`\`\`bash
+          wget https://github.com/abjoru/scribe/releases/download/v${VERSION}/scribe-${VERSION}-x86_64-unknown-linux-gnu.tar.gz
+          tar xzf scribe-${VERSION}-x86_64-unknown-linux-gnu.tar.gz
+          sudo install -Dm755 scribe /usr/local/bin/scribe
+          \`\`\`
+
+          ### From AUR
+          \`\`\`bash
+          yay -S scribe
+          \`\`\`
+
+          ### From Source
+          \`\`\`bash
+          wget https://github.com/abjoru/scribe/archive/v${VERSION}.tar.gz
+          tar xzf v${VERSION}.tar.gz
+          cd scribe-${VERSION}
+          cargo build --release --locked
+          sudo install -Dm755 target/release/scribe /usr/local/bin/scribe
+          \`\`\`
+
+          ## AUR Package Update
+          \`\`\`
+          pkgver=${VERSION}
+          sha256sums=('${{ steps.aur_checksum.outputs.sha256 }}')
+          \`\`\`" \
+            target/${{ matrix.target }}/release/scribe-${VERSION}-${{ matrix.target }}.tar.gz \
+            target/${{ matrix.target }}/release/scribe-${VERSION}-${{ matrix.target }}.tar.gz.sha256

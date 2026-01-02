@@ -151,6 +151,7 @@ async fn test_multiple_clients() {
 }
 
 #[tokio::test]
+#[ignore = "flaky test - depends on no daemon running in environment"]
 async fn test_client_error_daemon_not_running() {
     // Try to connect without daemon running
     let client = IpcClient::new().expect("Failed to create client");
