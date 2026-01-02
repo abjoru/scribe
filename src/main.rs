@@ -81,7 +81,7 @@ async fn main() -> Result<()> {
         Some(Commands::Start) => run_client(Command::Start).await,
         Some(Commands::Stop) => run_client(Command::Stop).await,
         Some(Commands::Status) => run_client(Command::Status).await,
-        Some(Commands::Model { command }) => run_model_command(command),
+        Some(Commands::Model { command }) => run_model_command(command).await,
     }
 }
 
@@ -116,7 +116,7 @@ async fn run_daemon(config: Config) -> Result<()> {
         model = %config.transcription.model,
         "Loading transcription backend"
     );
-    let backend = Backend::from_config(&config.transcription)?;
+    let backend = Backend::from_config(&config.transcription).await?;
     tracing::info!(
         backend = %backend.backend_name(),
         "Transcription backend initialized"
@@ -456,7 +456,7 @@ async fn run_client(cmd: Command) -> Result<()> {
 
 /// Handle model management commands
 #[allow(clippy::too_many_lines)]
-fn run_model_command(command: ModelCommands) -> Result<()> {
+async fn run_model_command(command: ModelCommands) -> Result<()> {
     use scribe::models::{ModelInfo, ModelManager};
 
     match command {
@@ -527,7 +527,7 @@ fn run_model_command(command: ModelCommands) -> Result<()> {
                 "Downloading {} model ({} MB)...",
                 model_info.name, model_info.size_mb
             );
-            manager.download(model_info)?;
+            manager.download(model_info).await?;
             println!("✓ Model '{}' downloaded successfully", model_info.name);
 
             // Suggest setting it as active if no active model

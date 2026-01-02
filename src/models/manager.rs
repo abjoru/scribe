@@ -44,7 +44,7 @@ impl ModelManager {
     }
 
     /// Download and install a model
-    pub fn download(&mut self, model_info: &ModelInfo) -> Result<()> {
+    pub async fn download(&mut self, model_info: &ModelInfo) -> Result<()> {
         // Check if already installed
         if self.manifest.find_model(model_info.name).is_some() {
             return Err(ScribeError::Config(format!(
@@ -55,7 +55,7 @@ impl ModelManager {
 
         // Download the model
         let downloader = ModelDownloader::new()?;
-        let installed = downloader.download(model_info)?;
+        let installed = downloader.download(model_info).await?;
 
         // Add to manifest
         self.manifest.add_model(installed);

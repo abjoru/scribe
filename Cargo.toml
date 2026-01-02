@@ -21,7 +21,7 @@ candle-core = "0.8"
 candle-nn = "0.8"
 candle-transformers = "0.8"
 tokenizers = "0.15"
-hf-hub = "0.3"
+hf-hub = { version = "0.4", default-features = false, features = ["tokio", "rustls-tls"] }
 
 # Audio processing for mel spectrogram
 byteorder = "1.5"
@@ -45,9 +45,8 @@ thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-# HTTP (for API) - use older rustls to avoid ring 0.17 build issues
-reqwest = { version = "0.11", default-features = false, features = ["json", "multipart", "rustls-tls-native-roots"] }
-rustls = "=0.20.9"  # Force old rustls that uses ring 0.16
+# HTTP (for API)
+reqwest = { version = "0.11", default-features = false, features = ["json", "multipart", "rustls-tls"] }
 
 # Process management
 subprocess = "0.2"

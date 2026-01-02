@@ -7,7 +7,7 @@ use byteorder::{ByteOrder, LittleEndian};
 use candle_core::{Device, IndexOp, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::whisper::{self as m, audio, Config};
-use hf_hub::{api::sync::Api, Repo, RepoType};
+use hf_hub::{api::tokio::Api, Repo, RepoType};
 use std::sync::{Arc, Mutex};
 use tokenizers::Tokenizer;
 
@@ -80,13 +80,13 @@ impl std::fmt::Debug for LocalBackend {
 
 impl LocalBackend {
     /// Create new local backend from config
-    pub fn new(config: &TranscriptionConfig) -> Result<Self> {
+    pub async fn new(config: &TranscriptionConfig) -> Result<Self> {
         // Determine device
         let device = Self::get_device(&config.device)?;
 
         // Load model and tokenizer from HuggingFace Hub
         let (model_config, tokenizer, model, mel_filters) =
-            Self::load_model(&config.model, &device)?;
+            Self::load_model(&config.model, &device).await?;
 
         // Get language token if specified
         let language_token = if config.language.is_empty() {
@@ -139,7 +139,7 @@ impl LocalBackend {
     }
 
     /// Load model from `HuggingFace` Hub
-    fn load_model(
+    async fn load_model(
         model_size: &str,
         device: &Device,
     ) -> Result<(Config, Tokenizer, WhisperModel, Vec<f32>)> {
@@ -171,19 +171,19 @@ impl LocalBackend {
             revision.to_string(),
         ));
 
-        let config_path = repo.get("config.json").map_err(|e| {
+        let config_path = repo.get("config.json").await.map_err(|e| {
             ScribeError::Transcription(TranscriptionError::ModelError(format!(
                 "Failed to download config.json: {e}"
             )))
         })?;
 
-        let tokenizer_path = repo.get("tokenizer.json").map_err(|e| {
+        let tokenizer_path = repo.get("tokenizer.json").await.map_err(|e| {
             ScribeError::Transcription(TranscriptionError::ModelError(format!(
                 "Failed to download tokenizer.json: {e}"
             )))
         })?;
 
-        let weights_path = repo.get("model.safetensors").map_err(|e| {
+        let weights_path = repo.get("model.safetensors").await.map_err(|e| {
             ScribeError::Transcription(TranscriptionError::ModelError(format!(
                 "Failed to download model.safetensors: {e}"
             )))

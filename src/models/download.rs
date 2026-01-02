@@ -1,7 +1,7 @@
 use crate::error::{Result, ScribeError};
 use crate::models::manifest::{models_data_dir, InstalledModel};
 use crate::models::registry::ModelInfo;
-use hf_hub::{api::sync::Api, Repo, RepoType};
+use hf_hub::{api::tokio::Api, Repo, RepoType};
 use std::fs;
 use std::path::PathBuf;
 
@@ -20,7 +20,7 @@ impl ModelDownloader {
     }
 
     /// Download a model from `HuggingFace` Hub
-    pub fn download(&self, model_info: &ModelInfo) -> Result<InstalledModel> {
+    pub async fn download(&self, model_info: &ModelInfo) -> Result<InstalledModel> {
         // Check disk space
         self.check_disk_space(model_info.size_mb)?;
 
@@ -42,19 +42,19 @@ impl ModelDownloader {
         // Download required files with progress indication
         println!("Downloading {} model files...", model_info.name);
 
-        let config_path = repo.get("config.json").map_err(|e| {
+        let config_path = repo.get("config.json").await.map_err(|e| {
             ScribeError::Transcription(crate::error::TranscriptionError::ModelError(format!(
                 "Failed to download config.json: {e}"
             )))
         })?;
 
-        let tokenizer_path = repo.get("tokenizer.json").map_err(|e| {
+        let tokenizer_path = repo.get("tokenizer.json").await.map_err(|e| {
             ScribeError::Transcription(crate::error::TranscriptionError::ModelError(format!(
                 "Failed to download tokenizer.json: {e}"
             )))
         })?;
 
-        let weights_path = repo.get("model.safetensors").map_err(|e| {
+        let weights_path = repo.get("model.safetensors").await.map_err(|e| {
             ScribeError::Transcription(crate::error::TranscriptionError::ModelError(format!(
                 "Failed to download model.safetensors: {e}"
             )))

@@ -33,9 +33,9 @@ pub enum Backend {
 
 impl Backend {
     /// Create backend from config
-    pub fn from_config(config: &TranscriptionConfig) -> Result<Self> {
+    pub async fn from_config(config: &TranscriptionConfig) -> Result<Self> {
         match config.backend.as_str() {
-            "local" => Ok(Self::Local(LocalBackend::new(config)?)),
+            "local" => Ok(Self::Local(LocalBackend::new(config).await?)),
             "openai" => Ok(Self::OpenAI(OpenAIBackend::new(config)?)),
             _ => Err(crate::error::ScribeError::Config(format!(
                 "Unknown backend: {}. Must be 'local' or 'openai'",

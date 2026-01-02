@@ -1,8 +1,8 @@
 use scribe::config::schema::TranscriptionConfig;
 use scribe::transcription::Backend;
 
-#[test]
-fn test_backend_selection_local() {
+#[tokio::test]
+async fn test_backend_selection_local() {
     let config = TranscriptionConfig {
         backend: "local".to_string(),
         model: "tiny".to_string(), // Use tiny model for faster tests
@@ -16,7 +16,7 @@ fn test_backend_selection_local() {
 
     // This will now download the model from HuggingFace Hub
     // It may succeed (if network available) or fail (if no network)
-    let result = Backend::from_config(&config);
+    let result = Backend::from_config(&config).await;
 
     // Either the backend was created successfully, or we got an error
     // related to downloading/network issues
@@ -36,8 +36,8 @@ fn test_backend_selection_local() {
     }
 }
 
-#[test]
-fn test_backend_selection_openai_missing_key() {
+#[tokio::test]
+async fn test_backend_selection_openai_missing_key() {
     // Remove API key to test error handling
     let original = std::env::var("OPENAI_API_KEY_TEST").ok();
     std::env::remove_var("OPENAI_API_KEY_TEST");
@@ -53,7 +53,7 @@ fn test_backend_selection_openai_missing_key() {
         api_timeout_secs: Some(30),
     };
 
-    let result = Backend::from_config(&config);
+    let result = Backend::from_config(&config).await;
     assert!(result.is_err());
 
     // Verify we get the right error type
@@ -65,8 +65,8 @@ fn test_backend_selection_openai_missing_key() {
     }
 }
 
-#[test]
-fn test_backend_selection_invalid() {
+#[tokio::test]
+async fn test_backend_selection_invalid() {
     let config = TranscriptionConfig {
         backend: "invalid".to_string(),
         model: "base".to_string(),
@@ -78,14 +78,14 @@ fn test_backend_selection_invalid() {
         api_timeout_secs: None,
     };
 
-    let result = Backend::from_config(&config);
+    let result = Backend::from_config(&config).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("Unknown backend"));
 }
 
-#[test]
+#[tokio::test]
 #[ignore = "requires model files to be downloaded from HuggingFace"]
-fn test_backend_name() {
+async fn test_backend_name() {
     // Test with local backend (requires model download)
     let config = TranscriptionConfig {
         backend: "local".to_string(),
@@ -98,6 +98,6 @@ fn test_backend_name() {
         api_timeout_secs: Some(30),
     };
 
-    let backend = Backend::from_config(&config).unwrap();
+    let backend = Backend::from_config(&config).await.unwrap();
     assert_eq!(backend.backend_name(), "local");
 }
