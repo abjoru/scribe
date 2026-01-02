@@ -32,6 +32,27 @@ enum Commands {
     Stop,
     /// Get current status
     Status,
+    /// Manage Whisper models
+    Model {
+        #[command(subcommand)]
+        command: ModelCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelCommands {
+    /// List installed models
+    List,
+    /// List available models for download
+    ListAvailable,
+    /// Download a model from `HuggingFace`
+    Download { name: String },
+    /// Set active model (updates config)
+    Set { name: String },
+    /// Remove an installed model
+    Remove { name: String },
+    /// Show detailed information about a model
+    Info { name: String },
 }
 
 #[tokio::main]
@@ -60,6 +81,7 @@ async fn main() -> Result<()> {
         Some(Commands::Start) => run_client(Command::Start).await,
         Some(Commands::Stop) => run_client(Command::Stop).await,
         Some(Commands::Status) => run_client(Command::Status).await,
+        Some(Commands::Model { command }) => run_model_command(command),
     }
 }
 
@@ -426,6 +448,158 @@ async fn run_client(cmd: Command) -> Result<()> {
             tracing::error!(error = %e, "Command failed");
             eprintln!("Error: {e}");
             std::process::exit(1);
+        }
+    }
+
+    Ok(())
+}
+
+/// Handle model management commands
+#[allow(clippy::too_many_lines)]
+fn run_model_command(command: ModelCommands) -> Result<()> {
+    use scribe::models::{ModelInfo, ModelManager};
+
+    match command {
+        ModelCommands::List => {
+            let manager = ModelManager::new()?;
+            let installed = manager.list_installed();
+            let active = manager.get_active();
+
+            if installed.is_empty() {
+                println!("No models installed.");
+                println!("\nDownload a model:");
+                println!("  scribe model download base");
+                return Ok(());
+            }
+
+            println!("Installed models:\n");
+            for model in installed {
+                let is_active = active == Some(model.name.as_str());
+                let marker = if is_active { " (active)" } else { "" };
+                let size_mb = model.size_bytes / 1_000_000;
+                println!("  {} - {} MB{}", model.name, size_mb, marker);
+            }
+
+            if active.is_none() {
+                println!("\nNo active model set. Set one with:");
+                println!("  scribe model set <name>");
+            }
+        }
+
+        ModelCommands::ListAvailable => {
+            use scribe::models::registry::MODELS;
+
+            println!("Available models:\n");
+            for model in MODELS {
+                let recommended = if model.recommended {
+                    " (recommended)"
+                } else {
+                    ""
+                };
+                println!(
+                    "  {:8} - {:>6} MB  {:>5} params  {}{}",
+                    model.name, model.size_mb, model.parameters, model.description, recommended
+                );
+            }
+
+            println!("\nDownload a model:");
+            println!("  scribe model download <name>");
+        }
+
+        ModelCommands::Download { name } => {
+            let mut manager = ModelManager::new()?;
+
+            // Find model info
+            let model_info = ModelInfo::find(&name).ok_or_else(|| {
+                let suggestion = ModelInfo::suggest(&name);
+                let mut msg = format!("Unknown model: '{name}'");
+                if let Some(suggestion) = suggestion {
+                    msg.push_str("\n  Did you mean: ");
+                    msg.push_str(suggestion);
+                    msg.push('?');
+                }
+                msg.push_str("\n  Available: ");
+                msg.push_str(&ModelInfo::all_names().join(", "));
+                ScribeError::NotFound(msg)
+            })?;
+
+            println!(
+                "Downloading {} model ({} MB)...",
+                model_info.name, model_info.size_mb
+            );
+            manager.download(model_info)?;
+            println!("✓ Model '{}' downloaded successfully", model_info.name);
+
+            // Suggest setting it as active if no active model
+            if manager.get_active().is_none() {
+                println!("\nSet as active model:");
+                println!("  scribe model set {}", model_info.name);
+            }
+        }
+
+        ModelCommands::Set { name } => {
+            let mut manager = ModelManager::new()?;
+
+            // Check if model exists in registry
+            if ModelInfo::find(&name).is_none() {
+                let suggestion = ModelInfo::suggest(&name);
+                let mut msg = format!("Unknown model: '{name}'");
+                if let Some(suggestion) = suggestion {
+                    msg.push_str("\n  Did you mean: ");
+                    msg.push_str(suggestion);
+                    msg.push('?');
+                }
+                msg.push_str("\n  Available: ");
+                msg.push_str(&ModelInfo::all_names().join(", "));
+                return Err(ScribeError::NotFound(msg));
+            }
+
+            manager.set_active(&name)?;
+        }
+
+        ModelCommands::Remove { name } => {
+            let mut manager = ModelManager::new()?;
+            manager.remove(&name)?;
+        }
+
+        ModelCommands::Info { name } => {
+            let manager = ModelManager::new()?;
+
+            // Try registry first
+            if let Some(info) = ModelInfo::find(&name) {
+                println!("Model: {}", info.name);
+                println!("Parameters: {}", info.parameters);
+                println!("Download size: {} MB", info.size_mb);
+                println!("Description: {}", info.description);
+                if info.recommended {
+                    println!("Status: Recommended");
+                }
+
+                // Check if installed
+                if let Some(installed) = manager.get_installed_info(&name) {
+                    println!("\nInstalled:");
+                    println!("  Size: {} MB", installed.size_bytes / 1_000_000);
+                    println!("  Downloaded: {}", installed.downloaded_at);
+                    if manager.get_active() == Some(&name) {
+                        println!("  Active: Yes");
+                    }
+                } else {
+                    println!("\nStatus: Not installed");
+                    println!("\nDownload with:");
+                    println!("  scribe model download {name}");
+                }
+            } else {
+                let suggestion = ModelInfo::suggest(&name);
+                let mut msg = format!("Unknown model: '{name}'");
+                if let Some(suggestion) = suggestion {
+                    msg.push_str("\n  Did you mean: ");
+                    msg.push_str(suggestion);
+                    msg.push('?');
+                }
+                msg.push_str("\n  Available: ");
+                msg.push_str(&ModelInfo::all_names().join(", "));
+                return Err(ScribeError::NotFound(msg));
+            }
         }
     }
 

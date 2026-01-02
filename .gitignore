@@ -18,5 +18,6 @@ Thumbs.db
 *.wav
 *.mp3
 models/
+!src/models/
 .cache/
 CLAUDE.md

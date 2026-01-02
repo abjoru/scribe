@@ -21,6 +21,9 @@ pub enum ScribeError {
     #[error("Text injection error: {0}\n\nTroubleshooting:\n- Is dotool installed and in PATH?\n- Check uinput permissions: ls -l /dev/uinput\n- You may need to be in 'input' group or run setup script")]
     Injection(String),
 
+    #[error("{0}")]
+    NotFound(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
