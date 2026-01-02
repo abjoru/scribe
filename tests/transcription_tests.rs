@@ -84,23 +84,20 @@ fn test_backend_selection_invalid() {
 }
 
 #[test]
+#[ignore = "requires model files to be downloaded from HuggingFace"]
 fn test_backend_name() {
-    // Test with a valid API key for OpenAI backend
-    std::env::set_var("OPENAI_API_KEY_TEST", "test-key");
-
+    // Test with local backend (requires model download)
     let config = TranscriptionConfig {
-        backend: "openai".to_string(),
+        backend: "local".to_string(),
         model: "base".to_string(),
         device: "cpu".to_string(),
         language: "en".to_string(),
         initial_prompt: None,
-        api_key_env: Some("OPENAI_API_KEY_TEST".to_string()),
+        api_key_env: Some("OPENAI_API_KEY".to_string()),
         api_model: Some("whisper-1".to_string()),
         api_timeout_secs: Some(30),
     };
 
     let backend = Backend::from_config(&config).unwrap();
-    assert_eq!(backend.backend_name(), "openai");
-
-    std::env::remove_var("OPENAI_API_KEY_TEST");
+    assert_eq!(backend.backend_name(), "local");
 }

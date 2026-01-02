@@ -6,6 +6,7 @@ pub mod config;
 pub mod error;
 pub mod input;
 pub mod ipc;
+pub mod models;
 pub mod notifications;
 pub mod transcription;
 pub mod tray;
