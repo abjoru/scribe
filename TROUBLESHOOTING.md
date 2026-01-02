@@ -8,10 +8,13 @@ This guide covers common issues and their solutions.
 - [Text Injection Issues](#text-injection-issues)
 - [IPC Connection Issues](#ipc-connection-issues)
 - [Transcription Issues](#transcription-issues)
+  - [Model Management](#local-model-model-not-found)
 - [Configuration Issues](#configuration-issues)
 - [Permission Issues](#permission-issues)
 - [Performance Issues](#performance-issues)
 - [Debug Logging](#debug-logging)
+- [Model Management Tips](#model-management-tips)
+- [Getting Help](#getting-help)
 
 ---
 
@@ -209,7 +212,7 @@ IPC error: Connection refused
 
 Troubleshooting:
 - Is the daemon running? Start with: scribe
-- Check socket path: /tmp/scribe-$USER.sock
+- Check socket path: $XDG_RUNTIME_DIR/scribe.sock
 - Try restarting the daemon
 ```
 
@@ -217,7 +220,7 @@ Troubleshooting:
 
 1. **Check if daemon is running:**
    ```bash
-   scribe --status
+   scribe status
    ```
 
 2. **Start the daemon:**
@@ -227,7 +230,7 @@ Troubleshooting:
 
 3. **Check socket file:**
    ```bash
-   ls -l /tmp/scribe-$USER.sock
+   ls -l $XDG_RUNTIME_DIR/scribe.sock
    # Should exist when daemon is running
    ```
 
@@ -254,7 +257,7 @@ IPC error: Address already in use
 
 1. **Remove stale socket:**
    ```bash
-   rm /tmp/scribe-$USER.sock
+   rm $XDG_RUNTIME_DIR/scribe.sock
    scribe
    ```
 
@@ -354,20 +357,55 @@ Troubleshooting:
    ping huggingface.co
    ```
 
-3. **Try smaller model:**
-   ```toml
-   [transcription]
-   model = "tiny"  # Only ~75MB
+3. **Download model manually:**
+   ```bash
+   scribe model download base
+   # Or try smaller model:
+   scribe model download tiny
    ```
 
-4. **Clear cache and retry:**
+4. **List available models:**
+   ```bash
+   scribe model list-available
+   ```
+
+5. **Clear cache and retry:**
    ```bash
    rm -rf ~/.cache/huggingface/hub/models--openai--whisper-*
-   scribe
+   scribe model download base
    ```
 
-5. **Check Hugging Face Hub status:**
+6. **Check Hugging Face Hub status:**
    - Visit https://status.huggingface.co/
+
+### Local model: Model not found
+
+**Symptoms:**
+```
+Model error: Model 'base' not found
+```
+
+**Solutions:**
+
+1. **List installed models:**
+   ```bash
+   scribe model list
+   ```
+
+2. **Download the model:**
+   ```bash
+   scribe model download base
+   ```
+
+3. **Check available models:**
+   ```bash
+   scribe model list-available
+   ```
+
+4. **Set a different model:**
+   ```bash
+   scribe model set tiny  # Use already-installed model
+   ```
 
 ### Local model: Out of memory
 
@@ -607,6 +645,47 @@ scribe 2>&1 | tee scribe.log
 
 ---
 
+## Model Management Tips
+
+### Pre-download models
+
+Download models before first use to avoid delays:
+
+```bash
+# Download your preferred model
+scribe model download base
+
+# Or download multiple models
+scribe model download tiny
+scribe model download base
+```
+
+### Switch between models
+
+```bash
+# List installed models
+scribe model list
+
+# Set active model
+scribe model set tiny  # Use faster model
+
+# Get model info
+scribe model info base
+```
+
+### Clean up disk space
+
+```bash
+# List installed models
+scribe model list
+
+# Remove unused models
+scribe model remove large
+scribe model remove medium
+```
+
+---
+
 ## Getting Help
 
 If you're still having issues:
@@ -660,6 +739,10 @@ cat ~/.config/scribe/config.toml
 RUST_LOG=debug scribe
 
 # 8. Test IPC (in another terminal)
-scribe --status
-scribe --toggle
+scribe status
+scribe toggle
+
+# 9. Check models
+scribe model list
+scribe model list-available
 ```

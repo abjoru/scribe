@@ -8,18 +8,10 @@
 
 ## Status
 
-🚧 **In Development** - Phase 0-9 Complete
-- ✅ Phase 0: Project setup
-- ✅ Phase 1: Audio capture and VAD
-- ✅ Phase 2: Unix socket IPC
-- ✅ Phase 3: Text injection via dotool
-- ✅ Phase 4: Configuration system
-- ✅ Phase 5a: OpenAI API transcription backend
-- ✅ Phase 5b: Local Whisper (Candle) transcription backend
-- ✅ Phase 6: Main application loop
-- ✅ Phase 7: System tray icon + notifications
-- ✅ Phase 8: Polish and optimization (logging, errors, docs)
-- ✅ Phase 9: Packaging and distribution (AUR, systemd, install script)
+![Version](https://img.shields.io/badge/version-0.1.4-blue)
+![Status](https://img.shields.io/badge/status-beta-yellow)
+
+**Beta Release** - Core functionality complete and stable. All major features implemented and tested.
 
 ## Features
 
@@ -42,12 +34,10 @@
 ### Option 1: AUR Package (Arch Linux - Recommended)
 
 ```bash
-# Clone the AUR repository
-cd ~/Development/Aur/bbdata-aur/scribe
+# Clone the repository
+git clone https://github.com/abjoru/scribe
+cd scribe
 makepkg -si
-
-# Or if using an AUR helper:
-paru -S scribe
 ```
 
 The AUR package handles:
@@ -193,8 +183,10 @@ Pre-commit hooks will automatically run these checks.
 ```bash
 # Start scribe daemon (runs in background)
 scribe
+# Or explicitly:
+scribe daemon
 
-# Or with debug logging
+# With debug logging
 RUST_LOG=debug scribe
 ```
 
@@ -202,18 +194,40 @@ RUST_LOG=debug scribe
 
 ```bash
 # Toggle recording on/off (recommended for hotkey)
-scribe --toggle
+scribe toggle
 
 # Or use explicit commands
-scribe --start   # Start recording
-scribe --stop    # Stop recording and transcribe
-scribe --status  # Get current status (idle/recording/transcribing)
+scribe start   # Start recording
+scribe stop    # Stop recording and transcribe
+scribe status  # Get current status (idle/recording/transcribing)
+```
+
+### Managing Whisper Models
+
+```bash
+# List installed models
+scribe model list
+
+# List available models for download
+scribe model list-available
+
+# Download a specific model
+scribe model download base
+
+# Set active model (updates config)
+scribe model set base
+
+# Show model information
+scribe model info base
+
+# Remove a model
+scribe model remove tiny
 ```
 
 ### Workflow
 
-1. Start the daemon: `scribe`
-2. Press your hotkey to toggle recording (e.g., F9)
+1. Start the daemon: `scribe` or `scribe daemon`
+2. Press your hotkey to toggle recording (e.g., `scribe toggle`)
 3. Speak naturally
 4. Press hotkey again to stop
 5. Transcribed text is automatically typed where your cursor is
@@ -238,9 +252,10 @@ Uses Hugging Face's Candle framework for pure Rust ML inference. Models are auto
 ```toml
 [transcription]
 backend = "local"
-model = "tiny"     # Options: tiny, base, small, medium, large
-device = "auto"    # Options: cpu, cuda, auto
-language = "en"    # 2-letter ISO code or empty for auto-detect
+model = "base"          # Options: tiny, base, small, medium, large
+device = "auto"         # Options: cpu, cuda, auto
+language = "en"         # 2-letter ISO code or empty for auto-detect
+initial_prompt = ""     # Optional context prompt for better accuracy
 ```
 
 Supported models:
@@ -292,7 +307,7 @@ arecord -L
 aggressiveness = 2      # 0-3 (higher = more aggressive filtering)
 silence_ms = 900        # Stop after this much silence
 min_duration_ms = 500   # Minimum recording length
-skip_initial_ms = 150   # Skip hotkey click noise
+skip_initial_ms = 0     # Skip initial ms (0 for IPC, 150 for hotkey noise)
 ```
 
 ### Text Injection
@@ -350,8 +365,8 @@ import XMonad.Util.EZConfig (additionalKeysP)
 
 main = xmonad $ def
     `additionalKeysP`
-    [ ("M-S-v", spawn "scribe --toggle")  -- Super+Shift+V
-    , ("<F9>", spawn "scribe --toggle")    -- Or F9
+    [ ("M-S-v", spawn "scribe toggle")  -- Super+Shift+V
+    , ("<F9>", spawn "scribe toggle")    -- Or F9
     ]
 ```
 
@@ -367,11 +382,11 @@ Show scribe status in Polybar:
 ```ini
 [module/scribe]
 type = custom/script
-exec = scribe --status 2>/dev/null || echo "offline"
+exec = scribe status 2>/dev/null || echo "offline"
 interval = 1
 format = <label>
 format-prefix = "🎤 "
-click-left = scribe --toggle
+click-left = scribe toggle
 ```
 
 ## System Tray
@@ -423,9 +438,11 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues and solutions.
 
 Quick tips:
 - Enable debug logging: `RUST_LOG=debug scribe`
-- Check daemon is running: `scribe --status`
+- Check daemon is running: `scribe status`
 - Verify audio devices: `arecord -L`
 - Test dotool: `echo "type hello" | dotool`
+- List models: `scribe model list`
+- Download missing model: `scribe model download base`
 
 ## Performance
 

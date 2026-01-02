@@ -1,29 +1,30 @@
 # Maintainer: Andreas Bjoru <andreas.bjoru@gmail.com>
 pkgname=scribe
-pkgver=0.1.0
+pkgver=0.1.4
 pkgrel=1
 pkgdesc="Fast, lean voice dictation using Whisper"
 arch=('x86_64')
 url="https://github.com/abjoru/scribe"
 license=('MIT')
-depends=('dotool' 'alsa-lib')
+depends=('dotool' 'alsa-lib' 'oniguruma')
 makedepends=('rust' 'cargo')
 optdepends=(
     'cuda: GPU acceleration'
     'polybar: system tray support'
 )
-source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
 install=scribe.install
 
 build() {
-    cd "${srcdir}/${pkgname}-${pkgver}"
+    # Force gcc linker instead of rust-lld for proper system library linking
+    export RUSTFLAGS="-C linker=gcc"
+
+    # Use system oniguruma library
+    export RUSTONIG_SYSTEM_LIBONIG=1
+
     cargo build --release --locked
 }
 
 package() {
-    cd "${srcdir}/${pkgname}-${pkgver}"
-
     # Binary
     install -Dm755 "target/release/scribe" \
         "${pkgdir}/usr/bin/scribe"

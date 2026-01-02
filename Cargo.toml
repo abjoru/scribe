@@ -1,6 +1,6 @@
 [package]
 name = "scribe"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "Fast, lean voice dictation system using Whisper"
 repository = "https://github.com/abjoru/scribe"
