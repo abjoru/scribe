@@ -1,6 +1,5 @@
 [Unit]
 Description=Scribe Voice Dictation
-After=graphical-session.target
 
 [Service]
 ExecStart=/usr/bin/scribe
