@@ -84,8 +84,9 @@ fn test_backend_selection_invalid() {
 }
 
 #[test]
+#[ignore = "requires model files to be downloaded from HuggingFace"]
 fn test_backend_name() {
-    // Test with local backend (doesn't require API key)
+    // Test with local backend (requires model download)
     let config = TranscriptionConfig {
         backend: "local".to_string(),
         model: "base".to_string(),
