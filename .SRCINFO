@@ -1,0 +1,18 @@
+pkgbase = scribe
+	pkgdesc = Fast, lean voice dictation using Whisper
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/abjoru/scribe
+	install = scribe.install
+	arch = x86_64
+	license = MIT
+	makedepends = rust
+	makedepends = cargo
+	depends = dotool
+	depends = alsa-lib
+	optdepends = cuda: GPU acceleration
+	optdepends = polybar: system tray support
+	source = scribe-0.1.0.tar.gz::https://github.com/abjoru/scribe/archive/v0.1.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = scribe
