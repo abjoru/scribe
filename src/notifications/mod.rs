@@ -109,6 +109,21 @@ impl NotificationManager {
             .show()
             .ok();
     }
+
+    pub fn recording_cancelled(&self) {
+        if !self.config.enable_status {
+            return;
+        }
+
+        Notification::new()
+            .summary("Recording Cancelled")
+            .body("Audio discarded")
+            .icon("process-stop")
+            .urgency(Urgency::Low)
+            .timeout(Timeout::Milliseconds(2000))
+            .show()
+            .ok();
+    }
 }
 
 #[cfg(test)]
@@ -256,5 +271,28 @@ mod tests {
         assert_eq!(preview.len(), 10);
 
         manager.transcription_complete(text);
+    }
+
+    #[test]
+    fn test_recording_cancelled() {
+        let config = test_config();
+        let manager = NotificationManager::new(config);
+
+        // Should not panic
+        manager.recording_cancelled();
+    }
+
+    #[test]
+    fn test_recording_cancelled_disabled() {
+        let config = NotificationConfig {
+            enable_status: false,
+            enable_errors: true,
+            show_preview: true,
+            preview_length: 50,
+        };
+        let manager = NotificationManager::new(config);
+
+        // Should not show notification when enable_status is false
+        manager.recording_cancelled();
     }
 }

@@ -4,6 +4,7 @@ This guide covers common issues and their solutions.
 
 ## Table of Contents
 
+- [Recording Issues](#recording-issues)
 - [Audio Issues](#audio-issues)
 - [Text Injection Issues](#text-injection-issues)
 - [IPC Connection Issues](#ipc-connection-issues)
@@ -15,6 +16,38 @@ This guide covers common issues and their solutions.
 - [Debug Logging](#debug-logging)
 - [Model Management Tips](#model-management-tips)
 - [Getting Help](#getting-help)
+
+---
+
+## Recording Issues
+
+### I accidentally started recording
+
+**Symptoms:**
+- Recording started unintentionally
+- Don't want to waste transcription resources on garbage audio
+- Need to abort without transcribing
+
+**Solutions:**
+
+1. **Cancel the recording (recommended):**
+   ```bash
+   scribe cancel
+   ```
+   This immediately discards the audio without transcription.
+
+2. **Difference between Stop and Cancel:**
+   - `scribe stop` - Processes audio → transcription → text injection
+   - `scribe cancel` - Discards audio immediately, no transcription
+
+3. **Set up a cancel keybinding:**
+   ```haskell
+   -- In your xmonad.hs
+   , ("<F9>", spawn "scribe toggle")      -- Toggle recording
+   , ("S-<F9>", spawn "scribe cancel")    -- Cancel with Shift+F9
+   ```
+
+**Note:** Cancel only works while actively recording (red microphone icon in tray). It has no effect in other states.
 
 ---
 
