@@ -199,8 +199,11 @@ scribe toggle
 # Or use explicit commands
 scribe start   # Start recording
 scribe stop    # Stop recording and transcribe
+scribe cancel  # Cancel recording without transcription (discards audio)
 scribe status  # Get current status (idle/recording/transcribing)
 ```
+
+**Note:** `cancel` only works while actively recording. Use it to abort accidental recordings without wasting transcription resources.
 
 ### Managing Whisper Models
 
@@ -365,10 +368,13 @@ import XMonad.Util.EZConfig (additionalKeysP)
 
 main = xmonad $ def
     `additionalKeysP`
-    [ ("M-S-v", spawn "scribe toggle")  -- Super+Shift+V
-    , ("<F9>", spawn "scribe toggle")    -- Or F9
+    [ ("M-S-v", spawn "scribe toggle")   -- Super+Shift+V to toggle
+    , ("<F9>", spawn "scribe toggle")     -- Or F9 to toggle
+    , ("S-<F9>", spawn "scribe cancel")   -- Shift+F9 to cancel (abort)
     ]
 ```
+
+**Tip:** Using the same key with Shift modifier (e.g., F9 vs Shift+F9) provides an intuitive way to cancel accidental recordings.
 
 Start scribe automatically on login by adding to `~/.xmonad/startup-hook`:
 ```bash

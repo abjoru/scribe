@@ -151,6 +151,59 @@ async fn test_multiple_clients() {
 }
 
 #[tokio::test]
+async fn test_cancel_command() {
+    let socket_path = get_test_socket_path("cancel_command");
+    let _ = std::fs::remove_file(&socket_path);
+
+    // Set up channels
+    let (command_tx, mut command_rx) = mpsc::channel::<Command>(32);
+    let (status_tx, status_rx) = mpsc::channel::<AppStatus>(32);
+    let (ready_tx, ready_rx) = oneshot::channel();
+
+    // Start server
+    let server = IpcServer::new(command_tx, status_rx)
+        .expect("Failed to create server")
+        .with_socket_path(socket_path.clone())
+        .with_ready_signal(ready_tx);
+    let server_handle = tokio::spawn(async move {
+        server.start().await.ok();
+    });
+
+    status_tx
+        .send(AppStatus::Idle)
+        .await
+        .expect("Failed to send initial status");
+
+    // Wait for server to signal it's started
+    tokio::time::timeout(Duration::from_secs(2), ready_rx)
+        .await
+        .expect("Server didn't start in time")
+        .ok();
+
+    sleep(Duration::from_millis(100)).await;
+
+    // Create client and send cancel command
+    let client = IpcClient::with_socket_path(socket_path.clone());
+    let response = client
+        .send_command(Command::Cancel)
+        .await
+        .expect("Failed to send cancel command");
+
+    // Verify response
+    assert_eq!(response, Response::Ok);
+
+    // Verify command received by server
+    let received = tokio::time::timeout(Duration::from_secs(1), command_rx.recv())
+        .await
+        .expect("Timeout waiting for command")
+        .expect("Channel closed");
+    assert_eq!(received, Command::Cancel);
+
+    // Clean up
+    server_handle.abort();
+}
+
+#[tokio::test]
 #[ignore = "flaky test - depends on no daemon running in environment"]
 async fn test_client_error_daemon_not_running() {
     // Try to connect without daemon running

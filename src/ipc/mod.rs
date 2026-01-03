@@ -9,6 +9,7 @@ pub enum Command {
     Toggle,
     Start,
     Stop,
+    Cancel,
     Status,
 }
 
@@ -39,6 +40,7 @@ mod tests {
             Command::Toggle,
             Command::Start,
             Command::Stop,
+            Command::Cancel,
             Command::Status,
         ];
 

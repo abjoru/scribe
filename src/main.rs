@@ -31,6 +31,8 @@ enum Commands {
     Start,
     /// Stop recording
     Stop,
+    /// Cancel recording without transcription
+    Cancel,
     /// Get current status
     Status,
     /// Manage Whisper models
@@ -81,6 +83,7 @@ async fn main() -> Result<()> {
         Some(Commands::Toggle) => run_client(Command::Toggle).await,
         Some(Commands::Start) => run_client(Command::Start).await,
         Some(Commands::Stop) => run_client(Command::Stop).await,
+        Some(Commands::Cancel) => run_client(Command::Cancel).await,
         Some(Commands::Status) => run_client(Command::Status).await,
         Some(Commands::Model { command }) => run_model_command(command).await,
     }
@@ -326,6 +329,24 @@ async fn run_daemon(config: Config) -> Result<()> {
                             tracing::debug!("Returned to idle state");
                         } else {
                             tracing::warn!(state = ?app_state, "Cannot stop: not currently recording");
+                        }
+                    }
+
+                    Command::Cancel => {
+                        tracing::debug!(state = ?app_state, "Processing Cancel command");
+                        if let AppState::Recording { audio_stream, .. } =
+                            std::mem::replace(&mut app_state, AppState::Idle)
+                        {
+                            audio_stream.stop();
+                            tracing::info!("Recording cancelled, discarding audio");
+                            current_status = AppStatus::Idle;
+                            update_status(current_status.clone()).await.ok();
+
+                            // TODO: Integrate NotificationManager and call:
+                            // notification_manager.recording_cancelled();
+                            tracing::debug!("Returned to idle state without transcription");
+                        } else {
+                            tracing::warn!(state = ?app_state, "Cannot cancel: not currently recording");
                         }
                     }
 
